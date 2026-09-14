@@ -4,9 +4,11 @@
 
 import { geocodeAddress, fetchInfrastructureData } from '@/lib/kakao';
 import { calculateTotalScore, getTierResult } from '@/lib/scoring';
+import { createShareToken } from '@/lib/share-token';
 import type { InfrastructureData, ScoreBreakdown, TierResult } from '@/types/score';
 
 export interface ScoreApiResponse {
+  shareToken?: string;
   address: string;
   coordinates: { lat: number; lng: number };
   infrastructure: InfrastructureData;
@@ -110,9 +112,11 @@ export async function GET(request: Request): Promise<Response> {
   const apiKey = process.env.KAKAO_REST_API_KEY;
   if (!apiKey) {
     const mock = buildMockResponse(address);
+    const shareCoordinates = hasCoordinates ? { lat, lng } : mock.coordinates;
     return Response.json(
       {
         ...mock,
+        shareToken: createShareToken({ ...shareCoordinates, score: mock.tier.score, tier: mock.tier.tier, title: mock.tier.title, isMock: true }),
         _isMock: true,
         _warning:
           '데모 데이터입니다. 실제 선택한 위치의 분석 결과가 아닙니다.',
@@ -166,6 +170,7 @@ export async function GET(request: Request): Promise<Response> {
   const tier: TierResult = getTierResult(breakdown.totalScore, breakdown);
 
   const payload: ScoreApiResponse = {
+    shareToken: createShareToken({ lat: geoLat, lng: geoLng, score: tier.score, tier: tier.tier, title: tier.title, isMock: false }),
     address: finalAddress,
     coordinates: { lat: geoLat, lng: geoLng },
     infrastructure,

@@ -225,6 +225,7 @@ export default function Home() {
             <>
               <ResultCard
                 tier={result.tier}
+                shareToken={result.shareToken}
                 address={result.address}
                 coordinates={lastRequest ?? result.coordinates}
                 isMock={result._isMock}

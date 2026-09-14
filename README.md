@@ -52,6 +52,14 @@ NEXT_PUBLIC_GA_MEASUREMENT_ID=G-XXXXXXXXXX
 잘못된 링크는 안내와 초기 화면을 표시하고, 조회 실패는 같은 위치로 재시도할 수 있습니다.
 공유 링크에는 선택한 지도 위치가 포함됩니다. REST 키가 없으면 데모 표시가 유지됩니다.
 
+공유 결과에는 서버에서 발급한 `/share/{shareToken}` 주소를 사용합니다. 토큰은 30일 동안만 유효하고 `SHARE_SIGNING_SECRET`으로 HMAC 서명됩니다. 서명은 위조를 막지만 토큰을 암호화하지 않으므로 토큰을 가진 사람은 공유 당시 좌표를 확인할 수 있습니다. 비밀키가 없으면 기존 `?lat=...&lng=...&share=1` 공유 방식으로 자동 대체됩니다. OG 미리보기는 토큰에 서명된 점수·티어만 사용하며 카카오 시설 검색을 실행하지 않습니다. 링크를 연 뒤에는 메인 화면이 좌표를 서버에 다시 보내 현재 시설 기준으로 재분석합니다.
+
+Vercel Production 환경변수에는 다음 값을 등록합니다.
+
+```bash
+SHARE_SIGNING_SECRET=<위 명령으로 생성한 32바이트 이상 비밀값>
+```
+
 ## Getting Started
 
 First, run the development server:

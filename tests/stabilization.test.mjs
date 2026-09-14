@@ -24,6 +24,8 @@ const {
   searchKeyword,
 } = await import('../lib/kakao.ts');
 const { normalizeCoordinates, coordinatesEqual, syncMapCenter } = await import('../lib/coordinates.ts');
+const { createShareToken, verifyShareToken, SHARE_TTL, SCORING_VERSION } = await import('../lib/share-token.ts');
+const { shareMetadata } = await import('../lib/share-metadata.ts');
 const { getScoreBand, isMeasurementIdValid, trackAnalysisCompletedOnce, trackEvent } = await import('../lib/analytics.ts');
 await import('../lib/scoring.test.ts');
 await import('../lib/kakao.test.ts');
@@ -101,6 +103,46 @@ test('coordinate sharing and restoration', async (t) => {
     assert.ok(long.text.includes('가'.repeat(159) + '…'));
     assert.ok(!long.text.includes('가'.repeat(200)));
     assert.match(long.text, /데모 데이터/);
+  });
+});
+
+test('signed share snapshots', async (t) => {
+  const secret = 'test-secret-with-at-least-32-bytes-long-123';
+  const input = { lat: 37.556312345, lng: 126.923612345, score: 90, tier: 'S', title: '완성형 올인원 꿀단지', isMock: false };
+  const issuedAt = 1_700_000_000;
+  const token = createShareToken(input, secret, issuedAt);
+  assert.ok(token);
+
+  await t.test('valid token verifies and metadata is derived without API access', () => {
+    const snapshot = verifyShareToken(token, secret, issuedAt + 1);
+    assert.equal(snapshot.lat, 37.556312);
+    assert.equal(snapshot.lng, 126.923612);
+    assert.equal(snapshot.score, 90);
+    assert.equal(snapshot.tier, 'S');
+    assert.equal(snapshot.scoringVersion, SCORING_VERSION);
+    assert.equal(snapshot.expiresAt, issuedAt + SHARE_TTL);
+    const metadata = shareMetadata(token, secret, issuedAt + 1);
+    assert.match(String(metadata.title), /90점.*S 티어/);
+    assert.match(String(metadata.description), /공유 당시 결과/);
+    assert.equal(metadata.openGraph.images[0].width, 1200);
+    assert.equal(metadata.openGraph.images[0].height, 630);
+  });
+
+  await t.test('tampering, invalid payloads and expiry are rejected', () => {
+    const [body, signature] = token.split('.');
+    const changed = `${body.slice(0, -1)}${body.endsWith('A') ? 'B' : 'A'}.${signature}`;
+    assert.equal(verifyShareToken(changed, secret, issuedAt + 1), null);
+    assert.equal(verifyShareToken(token, secret, issuedAt + SHARE_TTL), null);
+    assert.equal(verifyShareToken(token, 'wrong-secret-with-at-least-32-bytes-long-123', issuedAt + 1), null);
+    assert.equal(createShareToken({ ...input, lat: 91 }, secret, issuedAt), undefined);
+    assert.equal(createShareToken({ ...input, score: 101 }, secret, issuedAt), undefined);
+    assert.equal(createShareToken({ ...input, tier: 'A' }, secret, issuedAt), undefined);
+  });
+
+  await t.test('missing secret falls back to legacy share URL', () => {
+    assert.equal(createShareToken(input, undefined, issuedAt), undefined);
+    const legacy = buildShareUrl('https://example.com', input);
+    assert.equal(legacy, 'https://example.com/?lat=37.556312&lng=126.923612&share=1');
   });
 });
 

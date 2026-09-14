@@ -50,6 +50,7 @@ const TIER_CONFIG = {
 } as const;
 
 interface ResultCardProps {
+  shareToken?: string;
   tier: TierResult;
   address: string;
   coordinates: Coordinates;
@@ -58,7 +59,7 @@ interface ResultCardProps {
   onReset: () => void;
 }
 
-export default function ResultCard({ tier, address, coordinates, isMock, warning, onReset }: ResultCardProps) {
+export default function ResultCard({ tier, address, coordinates, shareToken, isMock, warning, onReset }: ResultCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const hasFired = useRef(false);
   const cfg = TIER_CONFIG[tier.tier];
@@ -102,7 +103,7 @@ export default function ResultCard({ tier, address, coordinates, isMock, warning
     setShareNotice('');
     setSharing(true);
     try {
-      const url = buildShareUrl(window.location.href, coordinates);
+      const url = buildShareUrl(window.location.href, coordinates, shareToken);
       const scoreBand = getScoreBand(tier.score);
       if (scoreBand) trackEvent('share_clicked', { tier: tier.tier, score_band: scoreBand });
       const outcome = await shareResult(buildResultShareData(tier, url, isMock), navigator);
@@ -126,7 +127,7 @@ export default function ResultCard({ tier, address, coordinates, isMock, warning
     try {
       const scoreBand = getScoreBand(tier.score);
       if (scoreBand) trackEvent('share_clicked', { tier: tier.tier, score_band: scoreBand });
-      await navigator.clipboard.writeText(buildShareUrl(window.location.href, coordinates));
+      await navigator.clipboard.writeText(buildShareUrl(window.location.href, coordinates, shareToken));
       if (scoreBand) trackEvent('share_completed', { method: 'clipboard', tier: tier.tier, score_band: scoreBand });
       setShareNotice('링크를 복사했습니다.');
     } catch {
@@ -219,6 +220,7 @@ export default function ResultCard({ tier, address, coordinates, isMock, warning
       <div className="text-center space-y-2">
         <button id="copy-link-btn" onClick={handleCopyLink} className="text-xs text-slate-300 underline">링크 복사</button>
         <p className="text-xs text-slate-400">공유 링크에는 선택한 지도 위치가 포함됩니다.</p>
+        <p className="text-xs text-slate-400">서명된 링크도 암호화되지 않아 좌표를 확인할 수 있습니다.</p>
         <p role="status" aria-live="polite" className="text-xs text-slate-300">{shareNotice}</p>
       </div>
 

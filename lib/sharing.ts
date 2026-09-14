@@ -34,11 +34,17 @@ export function restoreSharedLocationOnce(
   return shared;
 }
 
-export function buildShareUrl(href: string, coordinates: Coordinates): string {
+export function buildShareUrl(href: string, coordinates: Coordinates, shareToken?: string): string {
   const valid = normalizeCoordinates(coordinates.lat, coordinates.lng);
   if (!valid) throw new Error('공유할 위치가 올바르지 않습니다.');
   const url = new URL(href);
   url.hash = '';
+  if (shareToken && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/.test(shareToken) && shareToken.length <= 1600) {
+    url.pathname = '/share/' + shareToken;
+    url.search = '';
+    return url.toString();
+  }
+  url.pathname = '/';
   // Only location is shared; remove stale address, score and unrelated options.
   url.search = new URLSearchParams({
     lat: valid.lat.toFixed(COORDINATE_DECIMALS),
