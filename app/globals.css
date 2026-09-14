@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+/* ─── Design Tokens ──────────────────────────────────────────────────── */
+@theme {
+  --color-brand-50:  #f0fdf4;
+  --color-brand-100: #dcfce7;
+  --color-brand-400: #4ade80;
+  --color-brand-500: #22c55e;
+  --color-brand-600: #16a34a;
+  --color-brand-700: #15803d;
+
+  --color-surface:   #0f172a;   /* dark navy background */
+  --color-card:      #1e293b;   /* slate-800 */
+  --color-card-2:    #0f172a;   /* slate-900 */
+  --color-border:    #334155;   /* slate-600 */
+  --color-muted:     #64748b;   /* slate-500 */
+
+  /* Tier palette */
+  --color-tier-s:  #f59e0b;   /* amber */
+  --color-tier-a:  #8b5cf6;   /* violet */
+  --color-tier-b:  #3b82f6;   /* blue */
+  --color-tier-c:  #f97316;   /* orange */
+  --color-tier-f:  #6b7280;   /* gray */
+
+  --font-sans: "Inter", "Noto Sans KR", system-ui, sans-serif;
+  --radius-card: 1rem;
+}
+
+/* ─── Base Reset ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-surface);
+  color: #f8fafc;
+  min-height: 100dvh;
+}
+
+/* ─── Radar animation ────────────────────────────────────────────────── */
+@keyframes radar-ping {
+  0%   { transform: scale(0.4); opacity: 0.9; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.radar-ring {
+  animation: radar-ping 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.radar-ring-2 { animation-delay: 0.5s; }
+.radar-ring-3 { animation-delay: 1s; }
+.radar-ring-4 { animation-delay: 1.5s; }
+
+/* ─── Score bar fill animation ───────────────────────────────────────── */
+@keyframes bar-fill {
+  from { width: 0%; }
+  to   { width: var(--bar-target); }
+}
+
+.score-bar-fill {
+  animation: bar-fill 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* ─── Fade-in for result card ────────────────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.5s ease-out forwards;
+}
+
+/* ─── Glassmorphism card utility ─────────────────────────────────────── */
+.glass-card {
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--radius-card);
+}
+
+/* ─── Tier badge color utilities ─────────────────────────────────────── */
+.tier-s { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+.tier-a { background: linear-gradient(135deg, #8b5cf6, #6366f1); }
+.tier-b { background: linear-gradient(135deg, #3b82f6, #06b6d4); }
+.tier-c { background: linear-gradient(135deg, #f97316, #f59e0b); }
+.tier-f { background: linear-gradient(135deg, #6b7280, #4b5563); }
