@@ -71,9 +71,9 @@ function buildMockInfra(): InfrastructureData {
   };
 }
 
-function buildMockResponse(address: string, steepHill: boolean): ScoreApiResponse {
+function buildMockResponse(address: string): ScoreApiResponse {
   const mockInfra = buildMockInfra();
-  const breakdown = calculateTotalScore(mockInfra, steepHill);
+  const breakdown = calculateTotalScore(mockInfra);
   const tier = getTierResult(breakdown.totalScore, breakdown);
   return {
     address,
@@ -89,7 +89,7 @@ function buildMockResponse(address: string, steepHill: boolean): ScoreApiRespons
 // ---------------------------------------------------------------------------
 section('Mock Payload Structure');
 
-const mock = buildMockResponse('서울시 마포구 홍대입구역', false);
+const mock = buildMockResponse('서울시 마포구 홍대입구역');
 
 assert('payload.address is string', typeof mock.address === 'string');
 assert(

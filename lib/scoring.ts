@@ -10,13 +10,12 @@ function getMinDist(...dists: (number | null)[]): number {
   return valid.length > 0 ? Math.min(...valid) : 9999;
 }
 
-export function getDynamicCommentary(lowestKey: string, score: number, steepHill: boolean): string {
+export function getDynamicCommentary(lowestKey: string): string {
   if (lowestKey === 'allGood') return "단점을 찾을 수가 없습니다. 살기 편한 인프라가 완벽하게 갖춰진 최고의 동네예요!";
-  if (steepHill && score < 75) return "인프라는 둘째치고 집 들어갈 때마다 허벅지가 터지는 유산소 지옥길.";
 
   switch (lowestKey) {
     case 'subway': return "집은 좋은데 출퇴근길이 지옥입니다. 버스 놓치면 택시비 파산 각!";
-    case 'convenience': return "새벽에 라면이나 물 사러 나가려면 등산해야 합니다. 슬세권 실종!";
+    case 'convenience': return "새벽에 라면이나 물을 사러 멀리 나가야 합니다. 슬세권 실종!";
     case 'martDaiso': return "다이소 한 번 가려면 버스 타야 합니다. 쿠팡 로켓와우 없이는 생존 불가!";
     case 'deptStore': return "평일엔 괜찮은데 주말 쇼핑이나 약속 잡으려면 무조건 원정 나가야 해요.";
     case 'cinema': return "퇴근 후 문화생활은 넷플릭스가 유일한 희망인 조용한 동네입니다.";
@@ -27,7 +26,7 @@ export function getDynamicCommentary(lowestKey: string, score: number, steepHill
   }
 }
 
-export function calculateTotalScore(data: InfrastructureData, steepHill: boolean): ScoreBreakdown {
+export function calculateTotalScore(data: InfrastructureData): ScoreBreakdown {
   // 1. Subway (Max 22)
   let subScore = 0;
   const subDist = data.subway.distanceMetres ?? 9999;
@@ -138,11 +137,8 @@ export function calculateTotalScore(data: InfrastructureData, steepHill: boolean
     medical: { nearestDist: medDist, score: medScore },
   };
 
-  // 5. Steep Hill Penalty
-  const steepHillPenalty = steepHill ? -10 : 0;
-
-  // 6. Aggregate
-  let totalScore = subScore + cvsScore + martScore + deptScore + cinemaScore + cafeScore + careScore + medScore + steepHillPenalty;
+  // 5. Aggregate
+  let totalScore = subScore + cvsScore + martScore + deptScore + cinemaScore + cafeScore + careScore + medScore;
   totalScore = Math.max(0, Math.min(100, totalScore));
 
   const percentages = {
@@ -169,7 +165,7 @@ export function calculateTotalScore(data: InfrastructureData, steepHill: boolean
     }
   }
 
-  const dynamicMessage = getDynamicCommentary(weakestCategory, totalScore, steepHill);
+  const dynamicMessage = getDynamicCommentary(weakestCategory);
 
   return {
     totalScore,
@@ -179,7 +175,6 @@ export function calculateTotalScore(data: InfrastructureData, steepHill: boolean
     convenience: convenienceInfo,
     martDaiso: martInfo,
     lifestyle: lifestyleInfo,
-    steepHillPenalty,
     dynamicMessage,
     weakestCategory,
   };

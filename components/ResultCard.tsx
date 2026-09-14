@@ -48,10 +48,12 @@ const TIER_CONFIG = {
 interface ResultCardProps {
   tier: TierResult;
   address: string;
+  isMock?: boolean;
+  warning?: string;
   onReset: () => void;
 }
 
-export default function ResultCard({ tier, address, onReset }: ResultCardProps) {
+export default function ResultCard({ tier, address, isMock, warning, onReset }: ResultCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const hasFired = useRef(false);
   const cfg = TIER_CONFIG[tier.tier];
@@ -90,6 +92,7 @@ export default function ResultCard({ tier, address, onReset }: ResultCardProps) 
   // Copy share URL
   const handleCopyLink = useCallback(async () => {
     const url = new URL(window.location.href);
+    url.searchParams.delete('steepHill'); // Strip the retired option from legacy URLs.
     url.searchParams.set('address', address);
     try {
       await navigator.clipboard.writeText(url.toString());
@@ -116,6 +119,12 @@ export default function ResultCard({ tier, address, onReset }: ResultCardProps) 
         `}
         style={{ background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 100%)' }}
       >
+        {isMock && (
+          <div role="status" className="text-sm text-amber-200">
+            <strong>데모 데이터</strong>
+            <p>{warning ?? '실제 선택한 위치의 분석 결과가 아닙니다.'}</p>
+          </div>
+        )}
         {/* Tier badge */}
         <div className={`
           w-24 h-24 rounded-2xl ${cfg.badge} flex flex-col items-center justify-center

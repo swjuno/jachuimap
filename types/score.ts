@@ -55,7 +55,6 @@ export interface ScoreBreakdown {
   convenience: ConvenienceScoreInfo;
   martDaiso: MartDaisoScoreInfo;
   lifestyle: LifestyleScoreInfo;
-  steepHillPenalty: number;
   dynamicMessage: string;
   weakestCategory: string;
 }

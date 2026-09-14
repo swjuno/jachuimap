@@ -69,6 +69,37 @@ interface KakaoAddressResponse {
   documents: KakaoAddressDocument[];
 }
 
+export type InfrastructureCategory =
+  | 'subway' | 'cvs' | 'daiso' | 'oliveYoung' | 'laundry' | 'cafe'
+  | 'mart' | 'deptStore' | 'cinema' | 'gym' | 'pharmacy' | 'hospital';
+
+export type InfrastructureQueryResult =
+  | { category: InfrastructureCategory; status: 'success'; documents: KakaoDocument[] }
+  | { category: InfrastructureCategory; status: 'failure'; cause: unknown };
+
+export class InfrastructureLookupError extends Error {
+  readonly queries: readonly InfrastructureQueryResult[];
+
+  constructor(queries: readonly InfrastructureQueryResult[]) {
+    super('Required infrastructure queries failed');
+    this.name = 'InfrastructureLookupError';
+    this.queries = queries;
+  }
+}
+
+async function captureQuery(
+  category: InfrastructureCategory,
+  query: Promise<KakaoDocument[]>,
+): Promise<InfrastructureQueryResult> {
+  try {
+    const documents = await query;
+    if (!Array.isArray(documents)) throw new Error('Invalid Kakao documents response');
+    return { category, status: 'success', documents };
+  } catch (cause: unknown) {
+    return { category, status: 'failure', cause };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Geocoding
 // ---------------------------------------------------------------------------
@@ -113,7 +144,9 @@ export async function geocodeAddress(
       cache: 'no-store',
     });
 
-    if (!kwRes.ok) return null;
+    if (!kwRes.ok) {
+      throw new Error(`Kakao geocode keyword search failed: ${kwRes.status} ${kwRes.statusText}`);
+    }
 
     const kwData: KakaoLocalResponse = await kwRes.json();
     if (kwData.documents.length === 0) return null;
@@ -380,6 +413,23 @@ export async function fetchInfrastructureData(
   lng: number,
   apiKey: string,
 ): Promise<InfrastructureData> {
+  // Every query contributes to scoring and is required. Preserve all outcomes
+  // before deciding whether it is safe to aggregate and score the result.
+  const queries = await Promise.all([
+    captureQuery('subway', searchCategory(lng, lat, 'SW8', 1000, apiKey)),
+    captureQuery('cvs', searchCategory(lng, lat, 'CS2', 300, apiKey)),
+    captureQuery('daiso', searchKeyword(lng, lat, '다이소', 800, apiKey)),
+    captureQuery('oliveYoung', searchKeyword(lng, lat, '올리브영', 500, apiKey)),
+    captureQuery('laundry', searchKeyword(lng, lat, '코인빨래방', 300, apiKey)),
+    captureQuery('cafe', searchCategory(lng, lat, 'CE7', 400, apiKey)),
+    captureQuery('mart', searchCategory(lng, lat, 'MT1', 800, apiKey)),
+    captureQuery('deptStore', searchKeyword(lng, lat, '백화점', 1500, apiKey)),
+    captureQuery('cinema', searchKeyword(lng, lat, '영화관', 1200, apiKey)),
+    captureQuery('gym', searchKeyword(lng, lat, '헬스장', 500, apiKey)),
+    captureQuery('pharmacy', searchCategory(lng, lat, 'PM9', 500, apiKey)),
+    captureQuery('hospital', searchCategory(lng, lat, 'HP8', 500, apiKey)),
+  ]);
+
   const [
     subwayDocs,
     cvsDocs,
@@ -393,20 +443,10 @@ export async function fetchInfrastructureData(
     gymDocs,
     pharmacyDocs,
     hospitalDocs,
-  ] = await Promise.all([
-    searchCategory(lng, lat, 'SW8', 1000, apiKey).catch(() => []),
-    searchCategory(lng, lat, 'CS2', 300, apiKey).catch(() => []),
-    searchKeyword(lng, lat, '다이소', 800, apiKey).catch(() => []),
-    searchKeyword(lng, lat, '올리브영', 500, apiKey).catch(() => []),
-    searchKeyword(lng, lat, '코인빨래방', 300, apiKey).catch(() => []),
-    searchCategory(lng, lat, 'CE7', 400, apiKey).catch(() => []),
-    searchCategory(lng, lat, 'MT1', 800, apiKey).catch(() => []),
-    searchKeyword(lng, lat, '백화점', 1500, apiKey).catch(() => []),
-    searchKeyword(lng, lat, '영화관', 1200, apiKey).catch(() => []),
-    searchKeyword(lng, lat, '헬스장', 500, apiKey).catch(() => []),
-    searchCategory(lng, lat, 'PM9', 500, apiKey).catch(() => []),
-    searchCategory(lng, lat, 'HP8', 500, apiKey).catch(() => []),
-  ]);
+  ] = queries.map((query) => {
+    if (query.status === 'failure') throw new InfrastructureLookupError(queries);
+    return query.documents;
+  });
 
   const subway = buildSubwayInfo(subwayDocs);
 

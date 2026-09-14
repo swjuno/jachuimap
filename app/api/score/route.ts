@@ -12,9 +12,22 @@ export interface ScoreApiResponse {
   infrastructure: InfrastructureData;
   breakdown: ScoreBreakdown;
   tier: TierResult;
+  _isMock?: boolean;
+  _warning?: string;
 }
 
-function buildMockResponse(address: string, steepHill: boolean): ScoreApiResponse {
+function lookupError(code: 'GEOCODING_FAILED' | 'INFRASTRUCTURE_FETCH_FAILED'): Response {
+  return Response.json(
+    {
+      error: '주변 시설 정보를 확인하지 못했습니다. 잠시 후 다시 분석해 주세요.',
+      code,
+      retryable: true,
+    },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
+function buildMockResponse(address: string): ScoreApiResponse {
   const mockInfra: InfrastructureData = {
     subway: {
       exists: true,
@@ -47,7 +60,7 @@ function buildMockResponse(address: string, steepHill: boolean): ScoreApiRespons
     medical: { nearestDist: 300 },
   };
 
-  const breakdown = calculateTotalScore(mockInfra, steepHill);
+  const breakdown = calculateTotalScore(mockInfra);
   const tier = getTierResult(breakdown.totalScore, breakdown);
 
   return {
@@ -66,26 +79,43 @@ export async function GET(request: Request): Promise<Response> {
   const lngStr = searchParams.get('lng');
   const address = searchParams.get('address')?.trim() ?? '';
   
-  if (!latStr || !lngStr) {
-    if (!address) {
-      return Response.json(
-        { error: '좌표(lat, lng) 또는 주소를 입력해 주세요.', code: 'MISSING_PARAMS' },
-        { status: 400 },
-      );
-    }
+  const hasCoordinates = latStr !== null || lngStr !== null;
+  const lat = Number(latStr);
+  const lng = Number(lngStr);
+
+  // Validate before the mock branch or any upstream call. A partial pair must
+  // not silently fall back to address lookup.
+  if (hasCoordinates && (
+    !latStr?.trim() || !lngStr?.trim() ||
+    !Number.isFinite(lat) || !Number.isFinite(lng) ||
+    lat < -90 || lat > 90 || lng < -180 || lng > 180
+  )) {
+    return Response.json(
+      {
+        error: '유효한 좌표를 입력해 주세요. 위도는 -90~90, 경도는 -180~180 범위의 숫자여야 합니다.',
+        code: 'INVALID_COORDINATES',
+        retryable: false,
+      },
+      { status: 400 },
+    );
   }
 
-  const steepHill = searchParams.get('steepHill') === 'true';
+  if (!hasCoordinates && !address) {
+    return Response.json(
+      { error: '좌표(lat, lng) 또는 주소를 입력해 주세요.', code: 'MISSING_PARAMS', retryable: false },
+      { status: 400 },
+    );
+  }
 
   const apiKey = process.env.KAKAO_REST_API_KEY;
   if (!apiKey) {
-    const mock = buildMockResponse(address, steepHill);
+    const mock = buildMockResponse(address);
     return Response.json(
       {
         ...mock,
         _isMock: true,
         _warning:
-          'KAKAO_REST_API_KEY is not set. This is a mock response for local development.',
+          '데모 데이터입니다. 실제 선택한 위치의 분석 결과가 아닙니다.',
       },
       { status: 200 },
     );
@@ -95,29 +125,21 @@ export async function GET(request: Request): Promise<Response> {
   let geoLng: number;
   let finalAddress: string = address || '사용자 지정 좌표';
   
-  if (latStr && lngStr) {
-    geoLat = parseFloat(latStr);
-    geoLng = parseFloat(lngStr);
+  if (hasCoordinates) {
+    geoLat = lat;
+    geoLng = lng;
   } else {
     let geo: Awaited<ReturnType<typeof geocodeAddress>>;
     try {
       geo = await geocodeAddress(address, apiKey);
     } catch (err) {
       console.error('[Score API Error]', err);
-      const mock = buildMockResponse(address, steepHill);
-      return Response.json(
-        {
-          ...mock,
-          _isMock: true,
-          _warning: '주소 변환 중 오류가 발생하여 모의 데이터를 반환합니다.',
-        },
-        { status: 200 },
-      );
+      return lookupError('GEOCODING_FAILED');
     }
 
     if (geo === null) {
       return Response.json(
-        { error: '주소를 찾을 수 없습니다. 더 구체적인 주소를 입력해 주세요.', code: 'ADDRESS_NOT_FOUND' },
+        { error: '주소를 찾을 수 없습니다. 더 구체적인 주소를 입력해 주세요.', code: 'ADDRESS_NOT_FOUND', retryable: false },
         { status: 404 },
       );
     }
@@ -127,24 +149,20 @@ export async function GET(request: Request): Promise<Response> {
     finalAddress = geo.roadAddress;
   }
 
+  if (!Number.isFinite(geoLat) || !Number.isFinite(geoLng) ||
+      geoLat < -90 || geoLat > 90 || geoLng < -180 || geoLng > 180) {
+    return lookupError('GEOCODING_FAILED');
+  }
+
   let infrastructure: InfrastructureData;
   try {
     infrastructure = await fetchInfrastructureData(geoLat, geoLng, apiKey);
   } catch (err) {
     console.error('[Score API Error]', err);
-    const mock = buildMockResponse(finalAddress, steepHill);
-    mock.coordinates = { lat: geoLat, lng: geoLng };
-    return Response.json(
-      {
-        ...mock,
-        _isMock: true,
-        _warning: '인프라 데이터를 가져오는 중 오류가 발생하여 모의 데이터를 반환합니다.',
-      },
-      { status: 200 },
-    );
+    return lookupError('INFRASTRUCTURE_FETCH_FAILED');
   }
 
-  const breakdown = calculateTotalScore(infrastructure, steepHill);
+  const breakdown = calculateTotalScore(infrastructure);
   const tier: TierResult = getTierResult(breakdown.totalScore, breakdown);
 
   const payload: ScoreApiResponse = {

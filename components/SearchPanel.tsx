@@ -1,22 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import { Search, MapPin, AlertTriangle, Navigation } from 'lucide-react';
+import { Search, MapPin, Navigation } from 'lucide-react';
 
 interface SearchPanelProps {
   pinCoords: { lat: number; lng: number } | null;
-  onSearch: (lat: number, lng: number, steepHill: boolean) => void;
+  onSearch: (lat: number, lng: number) => void;
   onResetGps?: () => void;
   isLoading: boolean;
 }
 
 export default function SearchPanel({ pinCoords, onSearch, onResetGps, isLoading }: SearchPanelProps) {
-  const [steepHill, setSteepHill] = useState(false);
-
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!pinCoords || isLoading) return;
-    onSearch(pinCoords.lat, pinCoords.lng, steepHill);
+    onSearch(pinCoords.lat, pinCoords.lng);
   }
 
   return (
@@ -59,35 +56,6 @@ export default function SearchPanel({ pinCoords, onSearch, onResetGps, isLoading
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Steep-hill toggle */}
-        <label className="flex items-center gap-3 cursor-pointer select-none group">
-          <div className="relative">
-            <input
-              type="checkbox"
-              checked={steepHill}
-              onChange={(e) => setSteepHill(e.target.checked)}
-              disabled={isLoading}
-              className="sr-only peer"
-            />
-            <div className="
-              w-11 h-6 rounded-full bg-slate-700 border border-slate-600
-              peer-checked:bg-brand-600 peer-checked:border-brand-500
-              transition-colors relative
-            ">
-              <div className="
-                absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow
-                transition-transform peer-checked:translate-x-5
-                group-has-[:checked]:translate-x-5
-              " />
-            </div>
-          </div>
-          <span className="flex items-center gap-1.5 text-sm text-slate-300">
-            <AlertTriangle size={14} className="text-amber-400" />
-            가파른 언덕 있음
-            <span className="text-xs text-slate-500">(-10점 페널티)</span>
-          </span>
-        </label>
-
         {/* Submit button */}
         <button
           type="submit"

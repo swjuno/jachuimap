@@ -41,7 +41,7 @@ function baseData(overrides: Partial<InfrastructureData> = {}): InfrastructureDa
 section('Tier Boundary Tests');
 
 function tierFor(score: number): string {
-  const bd = calculateTotalScore(baseData(), false);
+  const bd = calculateTotalScore(baseData());
   return getTierResult(score, bd).tier;
 }
 
@@ -57,13 +57,13 @@ assert('44 pts → F',  tierFor(44)  === 'F');
 assert('0 pts → F',   tierFor(0)   === 'F');
 
 section('Subway Tests');
-assert('Subway 300m, 1 line → 20', calculateTotalScore(baseData({ subway: { exists: true, distanceMetres: 300, stationName: 'A', lines: ['1'], hasExpress: false } }), false).subway.score === 20);
-assert('Subway 300m, 2 lines → 22', calculateTotalScore(baseData({ subway: { exists: true, distanceMetres: 300, stationName: 'A', lines: ['1', '2'], hasExpress: false } }), false).subway.score === 22);
+assert('Subway 300m, 1 line → 20', calculateTotalScore(baseData({ subway: { exists: true, distanceMetres: 300, stationName: 'A', lines: ['1'], hasExpress: false } })).subway.score === 20);
+assert('Subway 300m, 2 lines → 22', calculateTotalScore(baseData({ subway: { exists: true, distanceMetres: 300, stationName: 'A', lines: ['1', '2'], hasExpress: false } })).subway.score === 22);
 
 section('CVS Tests');
-assert('CVS 100m, 2 brands → 12', calculateTotalScore(baseData({ cvs: { gs25: 1, cu: 1, seven: 0, emart24: 0, nearestDist: 100 } }), false).convenience.score === 12);
-assert('CVS 100m, laundry → 12', calculateTotalScore(baseData({ cvs: { gs25: 1, cu: 0, seven: 0, emart24: 0, nearestDist: 100 }, laundromat: { count: 1, nearestDist: 100 } }), false).convenience.score === 12);
-assert('CVS 100m, 2 brands, laundry → 14', calculateTotalScore(baseData({ cvs: { gs25: 1, cu: 1, seven: 0, emart24: 0, nearestDist: 100 }, laundromat: { count: 1, nearestDist: 100 } }), false).convenience.score === 14);
+assert('CVS 100m, 2 brands → 12', calculateTotalScore(baseData({ cvs: { gs25: 1, cu: 1, seven: 0, emart24: 0, nearestDist: 100 } })).convenience.score === 12);
+assert('CVS 100m, laundry → 12', calculateTotalScore(baseData({ cvs: { gs25: 1, cu: 0, seven: 0, emart24: 0, nearestDist: 100 }, laundromat: { count: 1, nearestDist: 100 } })).convenience.score === 12);
+assert('CVS 100m, 2 brands, laundry → 14', calculateTotalScore(baseData({ cvs: { gs25: 1, cu: 1, seven: 0, emart24: 0, nearestDist: 100 }, laundromat: { count: 1, nearestDist: 100 } })).convenience.score === 14);
 
 console.log(`\n══ Result: ${passed} passed, ${failed} failed ══\n`);
 if (failed > 0) process.exit(1);

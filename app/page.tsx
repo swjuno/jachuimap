@@ -20,15 +20,14 @@ export default function Home() {
   const [showDebug, setShowDebug] = useState(false);
   const [showDebugMarkers, setShowDebugMarkers] = useState(false);
 
-  async function handleSearch(lat: number, lng: number, steepHill: boolean) {
+  async function handleSearch(lat: number, lng: number) {
     setAppState('scanning');
     setError(null);
 
     try {
       const params = new URLSearchParams({ 
         lat: String(lat), 
-        lng: String(lng), 
-        steepHill: String(steepHill) 
+        lng: String(lng)
       });
       
       const apiPromise = fetch(`/api/score?${params.toString()}`);
@@ -165,6 +164,8 @@ export default function Home() {
               <ResultCard
                 tier={result.tier}
                 address={result.address}
+                isMock={result._isMock}
+                warning={result._warning}
                 onReset={handleReset}
               />
               {/* Mobile breakdown below result card */}
