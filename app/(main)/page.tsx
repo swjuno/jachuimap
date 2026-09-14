@@ -12,6 +12,7 @@ import type { ScoreApiResponse } from '@/app/api/score/route';
 import { coordinatesEqual, type Coordinates } from '@/lib/coordinates';
 import { restoreSharedLocationOnce } from '@/lib/sharing';
 import { getScoreBand, toPublicErrorCode, trackAnalysisCompletedOnce, trackEvent, type AnalyticsSource } from '@/lib/analytics';
+import { canAutoScroll, getScrollBehavior, markAutoScrolled, type ScrollState } from '@/lib/mobile-scroll';
 
 type AppState = 'idle' | 'scanning' | 'ad' | 'result';
 
@@ -28,6 +29,18 @@ export default function Home() {
   const requestSequence = useRef(0);
   const completedRequests = useRef(new Set<string>());
   const failedRequests = useRef(new Set<number>());
+  const scanningRef = useRef<HTMLDivElement>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  const scrollStateRef = useRef<ScrollState>({
+    requestId: 0,
+    scanningDone: false,
+    resultDone: false,
+    errorDone: false,
+    userInterrupted: false,
+  });
+  const suppressScrollUntilRef = useRef(0);
+  const [isMobile, setIsMobile] = useState(false);
 
   const handlePinChange = useCallback((coords: Coordinates) => {
     setPinCoords((previous) => {
@@ -38,6 +51,13 @@ export default function Home() {
 
   const handleSearch = useCallback(async (lat: number, lng: number, source: AnalyticsSource = 'manual') => {
     const requestId = ++requestSequence.current;
+    scrollStateRef.current = {
+      requestId,
+      scanningDone: false,
+      resultDone: false,
+      errorDone: false,
+      userInterrupted: false,
+    };
     trackEvent('analysis_started', { source });
     setLastRequest({ lat, lng });
     setPinCoords({ lat, lng });
@@ -92,6 +112,47 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const query = window.matchMedia('(max-width: 768px)');
+    const update = () => setIsMobile(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile || (appState !== 'scanning' && appState !== 'result' && !error)) return;
+    const markUserScroll = () => {
+      if (Date.now() >= suppressScrollUntilRef.current) scrollStateRef.current.userInterrupted = true;
+    };
+    window.addEventListener('wheel', markUserScroll, { passive: true });
+    window.addEventListener('touchmove', markUserScroll, { passive: true });
+    window.addEventListener('keydown', markUserScroll);
+    return () => {
+      window.removeEventListener('wheel', markUserScroll);
+      window.removeEventListener('touchmove', markUserScroll);
+      window.removeEventListener('keydown', markUserScroll);
+    };
+  }, [appState, error, isMobile]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const phase = appState === 'scanning' ? 'scanning' : appState === 'result' && result ? 'result' : error ? 'error' : null;
+    if (!phase) return;
+    const requestId = scrollStateRef.current.requestId;
+    if (!canAutoScroll(scrollStateRef.current, phase, requestId)) return;
+    const target = phase === 'scanning' ? scanningRef.current : phase === 'result' ? resultRef.current : errorRef.current;
+    if (!target) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (!canAutoScroll(scrollStateRef.current, phase, requestId)) return;
+      markAutoScrolled(scrollStateRef.current, phase);
+      suppressScrollUntilRef.current = Date.now() + 500;
+      target.scrollIntoView({ behavior: getScrollBehavior(window.matchMedia('(prefers-reduced-motion: reduce)').matches), block: 'start' });
+      target.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [appState, error, isMobile, result]);
+
+  useEffect(() => {
     const shared = restoreSharedLocationOnce(entryConsumed, () => window.location.search, (coords) => {
       void handleSearch(coords.lat, coords.lng, 'shared_link');
     });
@@ -140,57 +201,41 @@ export default function Home() {
       />
 
       {/* ── Page wrapper — mobile: single col | desktop: 2 col ──────── */}
-      <div className="
-        mx-auto w-full max-w-md
-        md:max-w-5xl md:grid md:grid-cols-2 md:gap-8 md:items-start
-      ">
-        {/* ── LEFT column: Map (desktop sticky) ─────────────────────── */}
-        <div className="hidden md:block md:sticky md:top-8 space-y-4">
+      <div className={`mx-auto flex w-full max-w-md flex-col md:max-w-5xl md:grid md:grid-cols-2 md:gap-8 md:items-start`}>
+        {/* One map stays mounted; CSS order places it before or after the mobile result. */}
+        <div className={`${appState === 'result' ? 'order-2' : 'order-1'} md:order-none md:col-start-1 md:row-start-1 md:sticky md:top-8 space-y-4`}>
           {entryReady && <KakaoMap
             lat={pinCoords?.lat}
             lng={pinCoords?.lng}
+            compact={appState === 'result'}
             label={result?.address ?? (pinCoords ? '지정된 위치' : undefined)}
-              onPinChange={handlePinChange}
+            onPinChange={handlePinChange}
             debugMarkers={debugMarkers}
           />}
 
-          {/* Desktop: show breakdown here when result is ready */}
-          {appState === 'result' && result && (
-            <ScoreCard
-              breakdown={result.breakdown}
-              infra={result.infrastructure}
-            />
-          )}
-
-          {/* Ad/sponsor slot */}
-          {appState === 'result' && (
-            <div className="glass-card p-4 flex items-center gap-3 text-sm">
-              <span className="text-xl">🏦</span>
-              <div>
-                <p className="font-semibold text-slate-200">전세 대출 비교</p>
-                <p className="text-xs text-slate-500">카카오뱅크 · 우리은행 · 국민은행</p>
+          <div className="hidden md:block">
+            {appState === 'result' && result && (
+              <ScoreCard breakdown={result.breakdown} infra={result.infrastructure} />
+            )}
+            {appState === 'result' && (
+              <div className="glass-card p-4 flex items-center gap-3 text-sm mt-4">
+                <span className="text-xl">🏦</span>
+                <div>
+                  <p className="font-semibold text-slate-200">전세 대출 비교</p>
+                  <p className="text-xs text-slate-500">카카오뱅크 · 우리은행 · 국민은행</p>
+                </div>
+                <span className="ml-auto text-xs text-slate-600 border border-slate-700 px-2 py-0.5 rounded">AD</span>
               </div>
-              <span className="ml-auto text-xs text-slate-600 border border-slate-700 px-2 py-0.5 rounded">AD</span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* ── RIGHT column: Search / Scanning / Result ───────────────── */}
-        <div className="space-y-4">
-          {/* Map visible on mobile too (above search) */}
-          <div className="md:hidden">
-            {entryReady && <KakaoMap
-              lat={pinCoords?.lat}
-              lng={pinCoords?.lng}
-              label={result?.address ?? (pinCoords ? '지정된 위치' : undefined)}
-            onPinChange={handlePinChange}
-              debugMarkers={debugMarkers}
-            />}
-          </div>
+        <div className={`${appState === 'result' ? 'order-1' : 'order-2'} md:order-none md:col-start-2 md:row-start-1 space-y-4`}>
 
           {/* Error banner */}
           {error && (
-            <div className="rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+            <div ref={errorRef} tabIndex={-1} role="alert" className="scroll-mt-6 rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-3 text-sm text-red-300">
               ⚠️ {error}
               {lastRequest && (
                 <button type="button" disabled={isLoading}
@@ -219,10 +264,14 @@ export default function Home() {
             />
           )}
 
-          {appState === 'scanning' && <ScanningRadar />}
+          {appState === 'scanning' && (
+            <div ref={scanningRef} tabIndex={-1} aria-live="polite" className="scroll-mt-6 outline-none">
+              <ScanningRadar />
+            </div>
+          )}
 
           {appState === 'result' && result && (
-            <>
+            <div ref={resultRef} tabIndex={-1} aria-live="polite" className="scroll-mt-6 outline-none">
               <ResultCard
                 tier={result.tier}
                 shareToken={result.shareToken}
@@ -248,7 +297,7 @@ export default function Home() {
                 </div>
                 <span className="ml-auto text-xs text-slate-600 border border-slate-700 px-2 py-0.5 rounded">AD</span>
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>

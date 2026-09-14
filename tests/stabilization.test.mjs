@@ -24,6 +24,7 @@ const {
   searchKeyword,
 } = await import('../lib/kakao.ts');
 const { normalizeCoordinates, coordinatesEqual, syncMapCenter } = await import('../lib/coordinates.ts');
+const { canAutoScroll, getScrollBehavior, markAutoScrolled } = await import('../lib/mobile-scroll.ts');
 const { createShareToken, verifyShareToken, SHARE_TTL, SCORING_VERSION } = await import('../lib/share-token.ts');
 const { shareMetadata } = await import('../lib/share-metadata.ts');
 const { getScoreBand, isMeasurementIdValid, trackAnalysisCompletedOnce, trackEvent } = await import('../lib/analytics.ts');
@@ -103,6 +104,26 @@ test('coordinate sharing and restoration', async (t) => {
     assert.ok(long.text.includes('가'.repeat(159) + '…'));
     assert.ok(!long.text.includes('가'.repeat(200)));
     assert.match(long.text, /데모 데이터/);
+  });
+});
+
+test('mobile scroll guards', async (t) => {
+  await t.test('each phase scrolls once for a request and reduced motion is instant', () => {
+    const state = { requestId: 7, scanningDone: false, resultDone: false, errorDone: false, userInterrupted: false };
+    assert.equal(canAutoScroll(state, 'scanning', 7), true);
+    markAutoScrolled(state, 'scanning');
+    assert.equal(canAutoScroll(state, 'scanning', 7), false);
+    assert.equal(canAutoScroll(state, 'result', 7), true);
+    markAutoScrolled(state, 'result');
+    assert.equal(canAutoScroll(state, 'result', 7), false);
+    assert.equal(getScrollBehavior(true), 'instant');
+    assert.equal(getScrollBehavior(false), 'smooth');
+  });
+  await t.test('user scrolling and stale requests block automatic movement', () => {
+    const state = { requestId: 7, scanningDone: false, resultDone: false, errorDone: false, userInterrupted: true };
+    assert.equal(canAutoScroll(state, 'scanning', 7), false);
+    state.userInterrupted = false;
+    assert.equal(canAutoScroll(state, 'result', 8), false);
   });
 });
 
