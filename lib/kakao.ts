@@ -64,6 +64,12 @@ interface KakaoLocalResponse {
   documents: KakaoDocument[];
 }
 
+// Kakao Local exposes at most 45 pageable results with a maximum page size of
+// 15. Three pages therefore cover the complete pageable window while keeping
+// the per-query request count bounded.
+const KAKAO_PAGE_SIZE = 15;
+const MAX_SEARCH_PAGES = 3;
+
 interface KakaoAddressResponse {
   meta: { total_count: number };
   documents: KakaoAddressDocument[];
@@ -138,6 +144,10 @@ export async function geocodeAddress(
     // Fallback to keyword search (e.g., for queries like "신림역 9출 방면")
     const kwUrl = new URL('https://dapi.kakao.com/v2/local/search/keyword.json');
     kwUrl.searchParams.set('query', address);
+    kwUrl.searchParams.set('page', '1');
+    kwUrl.searchParams.set('size', String(KAKAO_PAGE_SIZE));
+    // Preserve Kakao's relevance ordering for address resolution.
+    kwUrl.searchParams.set('sort', 'accuracy');
 
     const kwRes = await fetch(kwUrl.toString(), {
       headers: { Authorization: `KakaoAK ${apiKey}` },
@@ -196,21 +206,14 @@ export async function searchCategory(
   url.searchParams.set('x', String(x));
   url.searchParams.set('y', String(y));
   url.searchParams.set('radius', String(radius));
-  url.searchParams.set('size', '15');
+  url.searchParams.set('size', String(KAKAO_PAGE_SIZE));
+  url.searchParams.set('sort', 'distance');
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `KakaoAK ${apiKey}` },
-    cache: 'no-store',
-  });
-
-  if (!res.ok) {
-    throw new Error(
-      `Kakao category search (${categoryCode}) failed: ${res.status} ${res.statusText}`,
-    );
-  }
-
-  const data: KakaoLocalResponse = await res.json();
-  return data.documents;
+  return fetchSearchPages(
+    url,
+    apiKey,
+    `Kakao category search (${categoryCode})`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -232,21 +235,69 @@ export async function searchKeyword(
   url.searchParams.set('x', String(x));
   url.searchParams.set('y', String(y));
   url.searchParams.set('radius', String(radius));
-  url.searchParams.set('size', '15');
+  url.searchParams.set('size', String(KAKAO_PAGE_SIZE));
+  url.searchParams.set('sort', 'distance');
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `KakaoAK ${apiKey}` },
-    cache: 'no-store',
-  });
+  return fetchSearchPages(
+    url,
+    apiKey,
+    `Kakao keyword search ("${keyword}")`,
+  );
+}
 
-  if (!res.ok) {
-    throw new Error(
-      `Kakao keyword search ("${keyword}") failed: ${res.status} ${res.statusText}`,
-    );
+async function fetchSearchPages(
+  url: URL,
+  apiKey: string,
+  description: string,
+): Promise<KakaoDocument[]> {
+  const documents: KakaoDocument[] = [];
+
+  for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
+    url.searchParams.set('page', String(page));
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `KakaoAK ${apiKey}` },
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      throw new Error(`${description} failed: ${res.status} ${res.statusText}`);
+    }
+
+    const data: KakaoLocalResponse = await res.json();
+    if (!Array.isArray(data?.documents)) {
+      throw new Error(`${description} returned an invalid documents response`);
+    }
+
+    documents.push(...data.documents);
+
+    const isEnd = data.meta?.is_end ?? true;
+    if (isEnd) break;
+
+    const pageableCount = data.meta?.pageable_count;
+    if (Number.isFinite(pageableCount) && page * KAKAO_PAGE_SIZE >= pageableCount) {
+      break;
+    }
   }
 
-  const data: KakaoLocalResponse = await res.json();
-  return data.documents;
+  return sortByDistance(documents);
+}
+
+function parseDistance(doc: KakaoDocument): number | null {
+  const distance = Number.parseInt(doc.distance, 10);
+  return Number.isFinite(distance) ? distance : null;
+}
+
+function sortByDistance(docs: KakaoDocument[]): KakaoDocument[] {
+  return docs
+    .map((doc, index) => ({ doc, index, distance: parseDistance(doc) }))
+    .sort((a, b) => {
+      if (a.distance === null && b.distance === null) return a.index - b.index;
+      if (a.distance === null) return 1;
+      if (b.distance === null) return -1;
+      return a.distance - b.distance || a.index - b.index;
+    })
+    .map(({ doc }) => doc);
 }
 
 // ---------------------------------------------------------------------------
@@ -269,9 +320,15 @@ function buildSubwayInfo(docs: KakaoDocument[]): SubwayInfo {
     return { exists: false, distanceMetres: null, stationName: null, lines: [], hasExpress: false };
   }
 
-  const nearest = docs[0];
+  const nearest = docs.reduce((current, candidate) => {
+    const currentDistance = parseDistance(current);
+    const candidateDistance = parseDistance(candidate);
+    if (currentDistance === null) return candidateDistance !== null ? candidate : current;
+    if (candidateDistance !== null && candidateDistance < currentDistance) return candidate;
+    return current;
+  });
   const stationName = parseStationName(nearest.place_name);
-  const distanceMetres = parseInt(nearest.distance, 10);
+  const distanceMetres = parseDistance(nearest);
   const meta = getStationMeta(stationName);
 
   return {
@@ -291,8 +348,8 @@ function getNearestDist(...docArrays: KakaoDocument[][]): number | null {
   let min = Infinity;
   for (const docs of docArrays) {
     for (const doc of docs) {
-      const dist = parseInt(doc.distance, 10);
-      if (!isNaN(dist) && dist < min) min = dist;
+      const dist = parseDistance(doc);
+      if (dist !== null && dist < min) min = dist;
     }
   }
   return min === Infinity ? null : min;
@@ -532,3 +589,4 @@ export async function fetchInfrastructureData(
     }
   };
 }
+

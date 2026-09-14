@@ -16,7 +16,13 @@ registerHooks({
 });
 
 const { GET } = await import('../app/api/score/route.ts');
-const { fetchInfrastructureData, InfrastructureLookupError } = await import('../lib/kakao.ts');
+const {
+  fetchInfrastructureData,
+  InfrastructureLookupError,
+  geocodeAddress,
+  searchCategory,
+  searchKeyword,
+} = await import('../lib/kakao.ts');
 const { normalizeCoordinates, coordinatesEqual, syncMapCenter } = await import('../lib/coordinates.ts');
 await import('../lib/scoring.test.ts');
 await import('../lib/kakao.test.ts');
@@ -61,6 +67,130 @@ test('score API stabilization', async (t) => {
 
   await t.test('missing input remains 400', async () => {
     assert.equal((await GET(request({}))).status, 400);
+  });
+
+  await t.test('category search merges pages and sorts by distance', async () => {
+    const calls = [];
+    const place = (id, distance) => ({
+      id,
+      place_name: id,
+      category_group_code: 'CS2',
+      category_name: 'convenience',
+      x: '127',
+      y: '37',
+      distance: String(distance),
+      road_address_name: '',
+    });
+    globalThis.fetch = async (input) => {
+      const url = new URL(input);
+      calls.push({
+        page: Number(url.searchParams.get('page')),
+        sort: url.searchParams.get('sort'),
+      });
+      const page = Number(url.searchParams.get('page'));
+      return Response.json({
+        documents: [page === 1 ? place('far', 450) : place('near', 120)],
+        meta: { total_count: 30, pageable_count: 30, is_end: page === 2 },
+      });
+    };
+
+    const documents = await searchCategory(127, 37, 'CS2', 300, 'test-key');
+    assert.deepEqual(documents.map((doc) => doc.id), ['near', 'far']);
+    assert.deepEqual(calls, [{ page: 1, sort: 'distance' }, { page: 2, sort: 'distance' }]);
+  });
+
+  await t.test('keyword search stops immediately when is_end is true', async () => {
+    const pages = [];
+    globalThis.fetch = async (input) => {
+      const url = new URL(input);
+      pages.push(Number(url.searchParams.get('page')));
+      return Response.json({
+        documents: [],
+        meta: { total_count: 30, pageable_count: 30, is_end: true },
+      });
+    };
+
+    await searchKeyword(127, 37, 'cafe', 400, 'test-key');
+    assert.deepEqual(pages, [1]);
+  });
+
+  await t.test('keyword search caps pagination at Kakao\'s pageable limit', async () => {
+    const pages = [];
+    globalThis.fetch = async (input) => {
+      const url = new URL(input);
+      pages.push(Number(url.searchParams.get('page')));
+      return Response.json({
+        documents: [],
+        meta: { total_count: 45, pageable_count: 45, is_end: false },
+      });
+    };
+
+    await searchKeyword(127, 37, 'cafe', 400, 'test-key');
+    assert.deepEqual(pages, [1, 2, 3]);
+  });
+
+  await t.test('address keyword fallback uses consistent search params and relevance result', async () => {
+    const calls = [];
+    globalThis.fetch = async (input) => {
+      const url = new URL(input);
+      calls.push(url);
+      if (url.pathname.endsWith('/address.json')) return Response.json({ documents: [] });
+      return Response.json({
+        documents: [
+          {
+            place_name: '가장 적합한 결과',
+            road_address_name: '서울시 관악구 1',
+            x: '127.01',
+            y: '37.49',
+          },
+          {
+            place_name: '덜 적합한 결과',
+            road_address_name: '서울시 관악구 2',
+            x: '127.02',
+            y: '37.50',
+          },
+        ],
+        meta: { total_count: 2, pageable_count: 2, is_end: true },
+      });
+    };
+
+    const result = await geocodeAddress('신림역 9출 방면', 'test-key');
+    const fallbackUrl = calls[1];
+    assert.equal(fallbackUrl.searchParams.get('page'), '1');
+    assert.equal(fallbackUrl.searchParams.get('size'), '15');
+    assert.equal(fallbackUrl.searchParams.get('sort'), 'accuracy');
+    assert.equal(result?.roadAddress, '서울시 관악구 1');
+    assert.equal(result?.lat, 37.49);
+    assert.equal(result?.lng, 127.01);
+  });
+
+  await t.test('subway selection uses the nearest distance across pages', async () => {
+    const subwayPages = [];
+    const place = (id, distance) => ({
+      id,
+      place_name: id,
+      category_group_code: 'SW8',
+      category_name: 'subway',
+      x: '127',
+      y: '37',
+      distance: String(distance),
+      road_address_name: '',
+    });
+    globalThis.fetch = async (input) => {
+      const url = new URL(input);
+      if (url.searchParams.get('category_group_code') !== 'SW8') return emptyResponse();
+      const page = Number(url.searchParams.get('page'));
+      subwayPages.push(page);
+      return Response.json({
+        documents: [page === 1 ? place('far', 800) : place('near', 100)],
+        meta: { total_count: 30, pageable_count: 30, is_end: page === 2 },
+      });
+    };
+
+    const infrastructure = await fetchInfrastructureData(37, 127, 'test-key');
+    assert.equal(infrastructure.subway.stationName, 'near');
+    assert.equal(infrastructure.subway.distanceMetres, 100);
+    assert.deepEqual(subwayPages, [1, 2]);
   });
 
   await t.test('controlled map coordinates normalize valid values and ignore invalid updates', async () => {
@@ -230,3 +360,4 @@ test('score API stabilization', async (t) => {
     assert.equal(calls, 0);
   });
 });
+

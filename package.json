@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --conditions=react-server --test tests/stabilization.test.mjs"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
@@ -27,3 +28,4 @@
     "typescript": "^5"
   }
 }
+
