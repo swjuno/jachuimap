@@ -1,11 +1,13 @@
 'use client';
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { toPng } from 'html-to-image';
 import confetti from 'canvas-confetti';
 import { Download, Link, RotateCcw } from 'lucide-react';
 import type { TierResult } from '@/types/score';
 import { TOTAL_SCORE_MAX } from '@/lib/scoring';
+import type { Coordinates } from '@/lib/coordinates';
+import { buildShareUrl, buildResultShareData, shareResult } from '@/lib/sharing';
 
 // ── Tier visual config ──────────────────────────────────────────────────────
 const TIER_CONFIG = {
@@ -49,15 +51,18 @@ const TIER_CONFIG = {
 interface ResultCardProps {
   tier: TierResult;
   address: string;
+  coordinates: Coordinates;
   isMock?: boolean;
   warning?: string;
   onReset: () => void;
 }
 
-export default function ResultCard({ tier, address, isMock, warning, onReset }: ResultCardProps) {
+export default function ResultCard({ tier, address, coordinates, isMock, warning, onReset }: ResultCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const hasFired = useRef(false);
   const cfg = TIER_CONFIG[tier.tier];
+  const [shareNotice, setShareNotice] = useState('');
+  const [sharing, setSharing] = useState(false);
 
   // Fire confetti once on mount
   useEffect(() => {
@@ -90,24 +95,29 @@ export default function ResultCard({ tier, address, isMock, warning, onReset }: 
     }
   }, [tier.tier]);
 
-  // Copy share URL
-  const handleCopyLink = useCallback(async () => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete('steepHill'); // Strip the retired option from legacy URLs.
-    url.searchParams.set('address', address);
+  const handleShare = async () => {
+    setShareNotice('');
+    setSharing(true);
     try {
-      await navigator.clipboard.writeText(url.toString());
-      // Simple toast via alert (no external dep needed)
-      const btn = document.getElementById('copy-link-btn');
-      if (btn) {
-        const original = btn.textContent;
-        btn.textContent = '✅ 복사 완료!';
-        setTimeout(() => { if (btn) btn.textContent = original; }, 2000);
-      }
+      const url = buildShareUrl(window.location.href, coordinates);
+      const outcome = await shareResult(buildResultShareData(tier, url, isMock), navigator);
+      if (outcome === 'copied') setShareNotice('공유 문구와 링크를 복사했습니다. 원하는 대화에 붙여넣어 주세요.');
     } catch {
-      /* clipboard unavailable in non-secure context */
+      setShareNotice('공유하지 못했습니다. 링크 복사를 이용하거나 다시 시도해 주세요.');
+    } finally {
+      setSharing(false);
     }
-  }, [address]);
+  };
+
+  const handleCopyLink = async () => {
+    setShareNotice('');
+    try {
+      await navigator.clipboard.writeText(buildShareUrl(window.location.href, coordinates));
+      setShareNotice('링크를 복사했습니다.');
+    } catch {
+      setShareNotice('링크를 복사하지 못했습니다. 브라우저의 클립보드 권한을 확인해 주세요.');
+    }
+  };
 
   return (
     <div className="space-y-4 animate-fade-up">
@@ -177,8 +187,9 @@ export default function ResultCard({ tier, address, isMock, warning, onReset }: 
           카드 저장 (PNG)
         </button>
         <button
-          id="copy-link-btn"
-          onClick={handleCopyLink}
+          id="share-result-btn"
+          onClick={handleShare}
+          disabled={sharing}
           className="
             flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-medium
             bg-slate-800 border border-slate-700 text-slate-200
@@ -186,8 +197,14 @@ export default function ResultCard({ tier, address, isMock, warning, onReset }: 
           "
         >
           <Link size={14} />
-          링크 복사하기
+          카카오톡·DM으로 공유
         </button>
+      </div>
+
+      <div className="text-center space-y-2">
+        <button id="copy-link-btn" onClick={handleCopyLink} className="text-xs text-slate-300 underline">링크 복사</button>
+        <p className="text-xs text-slate-400">공유 링크에는 선택한 지도 위치가 포함됩니다.</p>
+        <p role="status" aria-live="polite" className="text-xs text-slate-300">{shareNotice}</p>
       </div>
 
       {/* Reset */}
@@ -206,3 +223,4 @@ export default function ResultCard({ tier, address, isMock, warning, onReset }: 
     </div>
   );
 }
+

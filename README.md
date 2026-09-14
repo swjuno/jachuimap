@@ -26,6 +26,18 @@ REST 키가 없는 데모 데이터는 기존 88점 A에서 **90점 S**가 되�
 
 검증: `npm test`, `npm run build`.
 
+## 결과 공유
+
+결과의 “카카오톡·DM으로 공유” 버튼은 실제 점수·티어·분석 문구와 위치 링크를 전달합니다.
+시스템 공유 미지원 브라우저에서는 전체 문구와 URL을 복사합니다. “링크 복사”와 PNG 저장도 가능합니다.
+공유 대상 앱은 기기에 설치된 앱과 브라우저 지원에 따라 다릅니다.
+
+링크 예: `/?lat=37.556300&lng=126.923600&share=1`.
+좌표는 소수점 6자리로 직렬화하며, 최초 진입 시 유효한 공유 좌표를 한 번만 자동 분석합니다.
+점수·티어는 링크에서 가져오지 않고 서버에서 다시 계산하므로 시설 데이터가 바뀌면 결과도 달라질 수 있습니다.
+잘못된 링크는 안내와 초기 화면을 표시하고, 조회 실패는 같은 위치로 재시도할 수 있습니다.
+공유 링크에는 선택한 지도 위치가 포함됩니다. REST 키가 없으면 데모 표시가 유지됩니다.
+
 ## Getting Started
 
 First, run the development server:
@@ -58,3 +70,4 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+

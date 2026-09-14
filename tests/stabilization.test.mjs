@@ -26,6 +26,82 @@ const {
 const { normalizeCoordinates, coordinatesEqual, syncMapCenter } = await import('../lib/coordinates.ts');
 await import('../lib/scoring.test.ts');
 await import('../lib/kakao.test.ts');
+const { parseSharedLocation, restoreSharedLocationOnce, buildShareUrl, buildResultShareData, shareResult } = await import('../lib/sharing.ts');
+
+test('coordinate sharing and restoration', async (t) => {
+  await t.test('valid share URL is bounded and excludes untrusted results', () => {
+    const url = buildShareUrl('https://example.com/?address=old&score=100&tier=S#old', { lat: 37.556312345, lng: 126.923612345 });
+    assert.equal(url, 'https://example.com/?lat=37.556312&lng=126.923612&share=1');
+    assert.deepEqual(parseSharedLocation(new URL(url).search), { kind: 'valid', coordinates: { lat: 37.556312, lng: 126.923612 } });
+    assert.deepEqual(parseSharedLocation('?share=1&lat=0&lng=0&score=100&tier=S'), { kind: 'valid', coordinates: { lat: 0, lng: 0 } });
+    assert.equal(parseSharedLocation('?lat=37&lng=127').kind, 'none');
+    assert.equal(parseSharedLocation('').kind, 'none');
+  });
+  await t.test('invalid or incomplete coordinates never auto-analyze', () => {
+    for (const query of ['lat=&lng=127', 'lat= &lng=127', 'lat=NaN&lng=127', 'lat=37&lng=Infinity',
+      'lat=90.01&lng=0', 'lat=0&lng=-180.01', 'lat=37', 'lng=127', 'lat=37oops&lng=127', 'lat=37&lat=38&lng=127']) {
+      let calls = 0;
+      const parsed = restoreSharedLocationOnce({ current: false }, () => `?share=1&${query}`, () => { calls++; });
+      assert.equal(parsed.kind, 'invalid');
+      assert.equal(calls, 0);
+    }
+    assert.throws(() => buildShareUrl('https://example.com', { lat: NaN, lng: 127 }));
+  });
+  await t.test('effect replay and later URL changes read and analyze only once', () => {
+    const consumed = { current: false };
+    const requests = [];
+    let reads = 0;
+    let query = '?share=1&lat=37.5&lng=127';
+    const setup = () => restoreSharedLocationOnce(consumed, () => { reads++; return query; }, coords => requests.push(coords));
+    setup();
+    setup(); // Strict Mode replays effect setup with the same ref.
+    query = '?share=1&lat=35&lng=129';
+    setup();
+    assert.equal(reads, 1);
+    assert.deepEqual(requests, [{ lat: 37.5, lng: 127 }]);
+  });
+  const tier = { score: 90, tier: 'S', title: '실제 결과 제목', quote: '사용하지 않는 문구', breakdown: { dynamicMessage: '실제 분석의 동적 문구' } };
+  const url = buildShareUrl('https://example.com', { lat: 37.5, lng: 127 });
+  const data = buildResultShareData(tier, url);
+  await t.test('native share receives actual title, score, tier, commentary and URL', async () => {
+    let received;
+    const outcome = await shareResult(data, { share: async payload => { received = payload; } });
+    assert.equal(outcome, 'shared');
+    assert.equal(received.title, tier.title);
+    assert.match(received.text, /90점, S티어/);
+    assert.ok(received.text.includes(tier.breakdown.dynamicMessage));
+    assert.ok(!received.text.includes(tier.quote));
+    assert.equal(received.url, url);
+  });
+  await t.test('unsupported native share copies full message and URL', async () => {
+    let copied;
+    assert.equal(await shareResult(data, { clipboard: { writeText: async text => { copied = text; } } }), 'copied');
+    for (const fragment of [tier.title, '90점', 'S티어', tier.breakdown.dynamicMessage, '너라면 여기서 살 수 있어?', url]) assert.ok(copied.includes(fragment));
+  });
+  await t.test('cancellation is silent; real share failures use clipboard fallback', async () => {
+    let copies = 0;
+    assert.equal(await shareResult(data, {
+      share: async () => { throw new DOMException('cancel', 'AbortError'); },
+      clipboard: { writeText: async () => { copies++; } },
+    }), 'cancelled');
+    assert.equal(copies, 0);
+    let fallback;
+    assert.equal(await shareResult(data, {
+      share: async () => { throw new Error('failed'); },
+      clipboard: { writeText: async text => { fallback = text; } },
+    }), 'copied');
+    assert.ok(fallback.includes(url));
+    await assert.rejects(shareResult(data, { share: async () => { throw new Error('failed'); } }), /failed/);
+    await assert.rejects(shareResult(data, {}), /클립보드/);
+    await assert.rejects(shareResult(data, { clipboard: { writeText: async () => { throw new Error('denied'); } } }), /denied/);
+  });
+  await t.test('long commentary is shortened and demo remains labelled', () => {
+    const long = buildResultShareData({ ...tier, breakdown: { dynamicMessage: '가'.repeat(200) } }, url, true);
+    assert.ok(long.text.includes('가'.repeat(159) + '…'));
+    assert.ok(!long.text.includes('가'.repeat(200)));
+    assert.match(long.text, /데모 데이터/);
+  });
+});
 
 const emptyResponse = () => Response.json({ documents: [], meta: { is_end: true } });
 const request = (params) => new Request(`http://localhost/api/score?${new URLSearchParams(params)}`);
@@ -363,4 +439,5 @@ test('score API stabilization', async (t) => {
     assert.equal(calls, 0);
   });
 });
+
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import SearchPanel from '@/components/SearchPanel';
 import ScanningRadar from '@/components/ScanningRadar';
 import ResultCard from '@/components/ResultCard';
@@ -10,6 +10,7 @@ import AdModal from '@/components/AdModal';
 import DebugModal from '@/components/DebugModal';
 import type { ScoreApiResponse } from '@/app/api/score/route';
 import { coordinatesEqual, type Coordinates } from '@/lib/coordinates';
+import { restoreSharedLocationOnce } from '@/lib/sharing';
 
 type AppState = 'idle' | 'scanning' | 'ad' | 'result';
 
@@ -20,6 +21,9 @@ export default function Home() {
   const [pinCoords, setPinCoords] = useState<{lat: number; lng: number} | null>(null);
   const [showDebug, setShowDebug] = useState(false);
   const [showDebugMarkers, setShowDebugMarkers] = useState(false);
+  const [entryReady, setEntryReady] = useState(false);
+  const entryConsumed = useRef(false);
+  const [lastRequest, setLastRequest] = useState<Coordinates | null>(null);
 
   const handlePinChange = useCallback((coords: Coordinates) => {
     setPinCoords((previous) => {
@@ -28,7 +32,11 @@ export default function Home() {
     });
   }, []);
 
-  async function handleSearch(lat: number, lng: number) {
+  const handleSearch = useCallback(async (lat: number, lng: number) => {
+    setLastRequest({ lat, lng });
+    setPinCoords({ lat, lng });
+    setResult(null);
+    setShowDebug(false);
     setAppState('scanning');
     setError(null);
 
@@ -55,12 +63,24 @@ export default function Home() {
       setError(err instanceof Error ? err.message : '알 수 없는 오류');
       setAppState('idle');
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const shared = restoreSharedLocationOnce(entryConsumed, () => window.location.search, (coords) => {
+      void handleSearch(coords.lat, coords.lng);
+    });
+    if (shared.kind === 'invalid') {
+      setError('공유 링크의 좌표가 올바르지 않습니다. 지도에서 위치를 선택해 주세요.');
+    }
+    // Mount maps only after URL restoration, preventing initial GPS from replacing shared coordinates.
+    setEntryReady(true);
+  }, [handleSearch]);
 
   function handleReset() {
     setAppState('idle');
     setResult(null);
     setError(null);
+    setLastRequest(null);
   }
 
   const isLoading = appState === 'scanning';
@@ -99,13 +119,13 @@ export default function Home() {
       ">
         {/* ── LEFT column: Map (desktop sticky) ─────────────────────── */}
         <div className="hidden md:block md:sticky md:top-8 space-y-4">
-          <KakaoMap
+          {entryReady && <KakaoMap
             lat={pinCoords?.lat}
             lng={pinCoords?.lng}
             label={result?.address ?? (pinCoords ? '지정된 위치' : undefined)}
               onPinChange={handlePinChange}
             debugMarkers={debugMarkers}
-          />
+          />}
 
           {/* Desktop: show breakdown here when result is ready */}
           {appState === 'result' && result && (
@@ -132,24 +152,31 @@ export default function Home() {
         <div className="space-y-4">
           {/* Map visible on mobile too (above search) */}
           <div className="md:hidden">
-            <KakaoMap
+            {entryReady && <KakaoMap
               lat={pinCoords?.lat}
               lng={pinCoords?.lng}
               label={result?.address ?? (pinCoords ? '지정된 위치' : undefined)}
             onPinChange={handlePinChange}
               debugMarkers={debugMarkers}
-            />
+            />}
           </div>
 
           {/* Error banner */}
           {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-3 text-sm text-red-300">
               ⚠️ {error}
+              {lastRequest && (
+                <button type="button" disabled={isLoading}
+                  onClick={() => void handleSearch(lastRequest.lat, lastRequest.lng)}
+                  className="ml-3 underline disabled:opacity-50">
+                  같은 위치로 다시 분석
+                </button>
+              )}
             </div>
           )}
 
           {/* State machine */}
-          {appState === 'idle' && (
+          {entryReady && appState === 'idle' && (
             <SearchPanel 
               pinCoords={pinCoords}
               onSearch={handleSearch} 
@@ -172,6 +199,7 @@ export default function Home() {
               <ResultCard
                 tier={result.tier}
                 address={result.address}
+                coordinates={lastRequest ?? result.coordinates}
                 isMock={result._isMock}
                 warning={result._warning}
                 onReset={handleReset}
@@ -230,3 +258,4 @@ export default function Home() {
     </main>
   );
 }
+
