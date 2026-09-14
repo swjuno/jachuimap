@@ -17,6 +17,7 @@ registerHooks({
 
 const { GET } = await import('../app/api/score/route.ts');
 const { fetchInfrastructureData, InfrastructureLookupError } = await import('../lib/kakao.ts');
+const { normalizeCoordinates, coordinatesEqual, syncMapCenter } = await import('../lib/coordinates.ts');
 await import('../lib/scoring.test.ts');
 await import('../lib/kakao.test.ts');
 
@@ -60,6 +61,29 @@ test('score API stabilization', async (t) => {
 
   await t.test('missing input remains 400', async () => {
     assert.equal((await GET(request({}))).status, 400);
+  });
+
+  await t.test('controlled map coordinates normalize valid values and ignore invalid updates', async () => {
+    assert.deepEqual(normalizeCoordinates(37.5, 127.0), { lat: 37.5, lng: 127 });
+    assert.deepEqual(normalizeCoordinates(0, 0), { lat: 0, lng: 0 });
+    assert.equal(normalizeCoordinates(Number.NaN, 127), null);
+    assert.equal(normalizeCoordinates(37, Number.POSITIVE_INFINITY), null);
+    assert.equal(normalizeCoordinates(90.001, 0), null);
+    assert.equal(normalizeCoordinates(0, -180.001), null);
+    assert.equal(coordinatesEqual({ lat: 37, lng: 127 }, { lat: 37, lng: 127 }), true);
+    assert.equal(coordinatesEqual({ lat: 37, lng: 127 }, { lat: 37.00000005, lng: 127 }), true);
+    assert.equal(coordinatesEqual({ lat: 37, lng: 127 }, { lat: 37.000001, lng: 127 }), false);
+    class FakeLatLng {
+      constructor(lat, lng) { this.lat = lat; this.lng = lng; }
+    }
+    let center = { lat: 37, lng: 127 };
+    const map = {
+      getCenter: () => ({ getLat: () => center.lat, getLng: () => center.lng }),
+      setCenter: (next) => { center = { lat: next.lat, lng: next.lng }; },
+    };
+    assert.equal(syncMapCenter(map, { lat: 37, lng: 127 }, FakeLatLng), false);
+    assert.equal(syncMapCenter(map, { lat: 35, lng: 129 }, FakeLatLng), true);
+    assert.deepEqual(center, { lat: 35, lng: 129 });
   });
 
   await t.test('successful empty searches are real absence, including coordinate boundaries', async () => {

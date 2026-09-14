@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { MapPin, Plus, Minus, Navigation, Search, X } from 'lucide-react';
+import { normalizeCoordinates, syncMapCenter, type Coordinates } from '@/lib/coordinates';
 
 export interface DebugMarker {
   id: string;
@@ -16,7 +17,7 @@ interface KakaoMapProps {
   lng?: number;
   /** Address label shown on marker */
   label?: string;
-  onPinChange?: (coords: { lat: number; lng: number }) => void;
+  onPinChange?: (coords: Coordinates) => void;
   debugMarkers?: DebugMarker[];
 }
 
@@ -55,7 +56,6 @@ declare global {
 
 interface KakaoMapInstance {
   setCenter: (latlng: unknown) => void;
-  panTo: (latlng: unknown) => void;
   relayout: () => void;
   getCenter: () => { getLat: () => number; getLng: () => number };
   setLevel: (level: number, options?: { animate?: boolean }) => void;
@@ -69,12 +69,17 @@ const KAKAO_SDK_SRC = 'https://dapi.kakao.com/v2/maps/sdk.js';
 export default function KakaoMap({ lat, lng, label, onPinChange, debugMarkers }: KakaoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapKey = process.env.NEXT_PUBLIC_KAKAO_MAP_KEY;
+  const controlledCoordinates = normalizeCoordinates(lat, lng);
   
   const mapInstanceRef = useRef<KakaoMapInstance | null>(null);
   const primaryCircleRef = useRef<any>(null);
   const extendedCircleRef = useRef<any>(null);
   const debugMarkersRef = useRef<any[]>([]);
   const hasInitializedGpsRef = useRef(false);
+  const latestCoordinatesRef = useRef<Coordinates | null>(controlledCoordinates);
+  const onPinChangeRef = useRef(onPinChange);
+  latestCoordinatesRef.current = controlledCoordinates;
+  onPinChangeRef.current = onPinChange;
 
   const [keyword, setKeyword] = useState('');
 
@@ -93,13 +98,26 @@ export default function KakaoMap({ lat, lng, label, onPinChange, debugMarkers }:
     const ps = new services.Places();
     ps.keywordSearch(keyword, (data, status) => {
       if (status === services.Status.OK && data.length > 0) {
-        const target = new kakao.maps.LatLng(Number(data[0].y), Number(data[0].x));
-        mapInstanceRef.current?.panTo(target);
+        const target = normalizeCoordinates(Number(data[0].y), Number(data[0].x));
+        if (!target) {
+          alert('위치를 찾을 수 없습니다. 지하철역이나 동 이름을 입력해 주세요.');
+          return;
+        }
+        moveToCoordinates(target);
       } else {
         alert('위치를 찾을 수 없습니다. 지하철역이나 동 이름을 입력해 주세요.');
       }
     });
   };
+
+  function moveToCoordinates(coordinates: Coordinates): void {
+    const map = mapInstanceRef.current;
+    const kakao = window.kakao;
+    if (!map || !kakao?.maps) return;
+
+    syncMapCenter(map, coordinates, kakao.maps.LatLng);
+    onPinChangeRef.current?.(coordinates);
+  }
 
   useEffect(() => {
     if (!containerRef.current || !mapKey) return;
@@ -116,8 +134,9 @@ export default function KakaoMap({ lat, lng, label, onPinChange, debugMarkers }:
         const { LatLng, Map, Circle, event } = window.kakao.maps;
 
         const container = containerRef.current;
-        const initialLat = lat ?? 37.497952;
-        const initialLng = lng ?? 127.027619;
+        const initialCoordinates = latestCoordinatesRef.current;
+        const initialLat = initialCoordinates?.lat ?? 37.497952;
+        const initialLng = initialCoordinates?.lng ?? 127.027619;
         const center = new LatLng(initialLat, initialLng);
 
         // 1. Map Initialization
@@ -165,26 +184,26 @@ export default function KakaoMap({ lat, lng, label, onPinChange, debugMarkers }:
 
         event.addListener(map, 'idle', () => {
           const currentCenter = map.getCenter();
-          onPinChange?.({ lat: currentCenter.getLat(), lng: currentCenter.getLng() });
+          onPinChangeRef.current?.({ lat: currentCenter.getLat(), lng: currentCenter.getLng() });
         });
 
         // 4. GPS Auto-Center (Run strictly ONCE)
-        if (!lat && !lng && navigator.geolocation && !hasInitializedGpsRef.current) {
+        if (!initialCoordinates && navigator.geolocation && !hasInitializedGpsRef.current) {
           hasInitializedGpsRef.current = true;
           navigator.geolocation.getCurrentPosition(
             (pos) => {
-              const newLatLng = new LatLng(pos.coords.latitude, pos.coords.longitude);
-              map.panTo(newLatLng); // The 'idle' event will trigger onPinChange automatically
+              const coordinates = normalizeCoordinates(pos.coords.latitude, pos.coords.longitude);
+              if (coordinates) moveToCoordinates(coordinates);
             },
             (err) => {
               console.warn('Geolocation failed or denied, sticking to default:', err);
-              onPinChange?.({ lat: initialLat, lng: initialLng });
+              onPinChangeRef.current?.({ lat: initialLat, lng: initialLng });
             },
             { enableHighAccuracy: true, timeout: 5000 }
           );
-        } else if (!lat && !lng && !hasInitializedGpsRef.current) {
+        } else if (!initialCoordinates && !hasInitializedGpsRef.current) {
           hasInitializedGpsRef.current = true;
-          onPinChange?.({ lat: initialLat, lng: initialLng });
+          onPinChangeRef.current?.({ lat: initialLat, lng: initialLng });
         }
       });
     }
@@ -208,13 +227,22 @@ export default function KakaoMap({ lat, lng, label, onPinChange, debugMarkers }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapKey]); // Empty dependencies except mapKey to completely decouple from lat/lng prop changes
 
+  // Keep the Kakao map controlled by the selected pin. This runs after map
+  // initialization as well as whenever GPS/search updates the parent coords.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const coordinates = normalizeCoordinates(lat, lng);
+    if (!map || !coordinates || !window.kakao?.maps) return;
+
+    syncMapCenter(map, coordinates, window.kakao.maps.LatLng);
+  }, [lat, lng]);
+
   function handleGpsClick() {
     if (!navigator.geolocation || !window.kakao?.maps) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const { LatLng } = window.kakao!.maps;
-        const newLatLng = new LatLng(pos.coords.latitude, pos.coords.longitude);
-        mapInstanceRef.current?.panTo(newLatLng);
+        const coordinates = normalizeCoordinates(pos.coords.latitude, pos.coords.longitude);
+        if (coordinates) moveToCoordinates(coordinates);
       },
       (err) => {
         alert('GPS 권한을 허용해주세요.');

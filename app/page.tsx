@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import SearchPanel from '@/components/SearchPanel';
 import ScanningRadar from '@/components/ScanningRadar';
 import ResultCard from '@/components/ResultCard';
@@ -9,6 +9,7 @@ import KakaoMap, { DebugMarker } from '@/components/KakaoMap';
 import AdModal from '@/components/AdModal';
 import DebugModal from '@/components/DebugModal';
 import type { ScoreApiResponse } from '@/app/api/score/route';
+import { coordinatesEqual, type Coordinates } from '@/lib/coordinates';
 
 type AppState = 'idle' | 'scanning' | 'ad' | 'result';
 
@@ -19,6 +20,13 @@ export default function Home() {
   const [pinCoords, setPinCoords] = useState<{lat: number; lng: number} | null>(null);
   const [showDebug, setShowDebug] = useState(false);
   const [showDebugMarkers, setShowDebugMarkers] = useState(false);
+
+  const handlePinChange = useCallback((coords: Coordinates) => {
+    setPinCoords((previous) => {
+      if (previous && coordinatesEqual(previous, coords)) return previous;
+      return coords;
+    });
+  }, []);
 
   async function handleSearch(lat: number, lng: number) {
     setAppState('scanning');
@@ -95,7 +103,7 @@ export default function Home() {
             lat={pinCoords?.lat}
             lng={pinCoords?.lng}
             label={result?.address ?? (pinCoords ? '지정된 위치' : undefined)}
-            onPinChange={setPinCoords}
+              onPinChange={handlePinChange}
             debugMarkers={debugMarkers}
           />
 
@@ -128,7 +136,7 @@ export default function Home() {
               lat={pinCoords?.lat}
               lng={pinCoords?.lng}
               label={result?.address ?? (pinCoords ? '지정된 위치' : undefined)}
-              onPinChange={setPinCoords}
+            onPinChange={handlePinChange}
               debugMarkers={debugMarkers}
             />
           </div>
@@ -148,7 +156,7 @@ export default function Home() {
               onResetGps={() => {
                 if (navigator.geolocation) {
                   navigator.geolocation.getCurrentPosition(
-                    (pos) => setPinCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+                    (pos) => handlePinChange({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
                     () => alert('GPS 위치를 가져올 수 없습니다.')
                   );
                 }
