@@ -68,6 +68,7 @@ interface KakaoMapInstance {
 const KAKAO_SDK_SRC = 'https://dapi.kakao.com/v2/maps/sdk.js';
 
 export default function KakaoMap({ lat, lng, compact = false, label, onPinChange, debugMarkers }: KakaoMapProps) {
+  const mapHeightClass = compact ? 'h-[220px] md:h-[460px]' : 'h-[400px] md:h-[460px]';
   const containerRef = useRef<HTMLDivElement>(null);
   const mapKey = process.env.NEXT_PUBLIC_KAKAO_MAP_KEY;
   const controlledCoordinates = normalizeCoordinates(lat, lng);
@@ -261,7 +262,7 @@ export default function KakaoMap({ lat, lng, compact = false, label, onPinChange
   
   if (!mapKey) {
     return (
-      <div className={`w-full ${compact ? 'h-[220px] md:h-[460px]' : 'h-[460px]'} rounded-2xl overflow-hidden glass-card relative`}>
+      <div className={`w-full ${mapHeightClass} rounded-2xl overflow-hidden glass-card relative`}>
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
           <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(rgba(99,102,241,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.4) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
           <div className="absolute bottom-3 left-0 right-0 flex justify-center">
@@ -273,7 +274,7 @@ export default function KakaoMap({ lat, lng, compact = false, label, onPinChange
   }
 
   return (
-    <div className={`w-full ${compact ? 'h-[220px] md:h-[460px]' : 'h-[460px]'} rounded-2xl overflow-hidden glass-card relative touch-pan-x touch-pan-y shadow-lg`}>
+    <div className={`w-full ${mapHeightClass} rounded-2xl overflow-hidden glass-card relative touch-pan-x touch-pan-y shadow-lg`}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
       {/* Floating Search Bar */}

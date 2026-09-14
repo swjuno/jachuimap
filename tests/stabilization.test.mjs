@@ -2,6 +2,7 @@
 // node --conditions=react-server --test tests/stabilization.test.mjs
 // Native TypeScript stripping; resolve the app's tsconfig alias without deps.
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
@@ -31,6 +32,19 @@ const { getScoreBand, isMeasurementIdValid, trackAnalysisCompletedOnce, trackEve
 await import('../lib/scoring.test.ts');
 await import('../lib/kakao.test.ts');
 const { parseSharedLocation, restoreSharedLocationOnce, buildShareUrl, buildResultShareData, shareResult } = await import('../lib/sharing.ts');
+
+const mainPageSource = await readFile(new URL('../app/(main)/page.tsx', import.meta.url), 'utf8');
+const searchPanelSource = await readFile(new URL('../components/SearchPanel.tsx', import.meta.url), 'utf8');
+
+test('mobile selection layout prioritizes analysis CTA while preserving one map mount', () => {
+  assert.equal((mainPageSource.match(/<KakaoMap/g) ?? []).length, 1);
+  assert.match(mainPageSource, /compact=\{appState === 'result'\}/);
+  assert.match(searchPanelSource, /className="order-1 space-y-4 md:order-3"/);
+  assert.match(searchPanelSource, /className="order-2 space-y-1 md:order-1"/);
+  assert.match(searchPanelSource, /className="hidden items-center gap-2[^"]*md:flex"/);
+  assert.match(searchPanelSource, /aria-label="현재 선택한 위치 분석하기"/);
+  assert.match(searchPanelSource, /지도를 움직여 원하는 위치를 맞춘 뒤 분석하세요\./);
+});
 
 test('coordinate sharing and restoration', async (t) => {
   await t.test('valid share URL is bounded and excludes untrusted results', () => {
