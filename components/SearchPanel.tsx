@@ -24,7 +24,7 @@ export default function SearchPanel({ pinCoords, onSearch, onResetGps, isLoading
           🏠 자취 생존기 맵
         </h1>
         <p className="text-sm text-slate-400">
-          지도에 핀을 꽂고 500m 반경 인프라 티어를 확인하세요.
+          지도에 핀을 꽂고 인프라 티어를 확인하세요. 항목별 직선거리 기준 · 최대 1.5km
         </p>
       </div>
 
@@ -69,7 +69,7 @@ export default function SearchPanel({ pinCoords, onSearch, onResetGps, isLoading
           "
         >
           <Search size={16} />
-          {isLoading ? '분석 중...' : '🎯 이 위치(반경 500m) 분석하기'}
+          {isLoading ? '분석 중...' : '🎯 이 위치 분석하기'}
         </button>
       </form>
     </section>

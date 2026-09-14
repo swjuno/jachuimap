@@ -5,6 +5,22 @@
 
 import type { InfrastructureData, ScoreBreakdown, TierResult, SubwayScoreInfo, ConvenienceScoreInfo, MartDaisoScoreInfo, LifestyleScoreInfo } from '@/types/score';
 
+export const SCORE_MAX = {
+  subway: 22,
+  convenience: 14,
+  martDaiso: 14,
+  deptStore: 15,
+  cinema: 10,
+  cafe: 9,
+  care: 8,
+  medical: 8,
+} as const;
+
+export const LIFESTYLE_MAX = SCORE_MAX.deptStore + SCORE_MAX.cinema
+  + SCORE_MAX.cafe + SCORE_MAX.care + SCORE_MAX.medical;
+export const TOTAL_SCORE_MAX = SCORE_MAX.subway + SCORE_MAX.convenience
+  + SCORE_MAX.martDaiso + LIFESTYLE_MAX;
+
 function getMinDist(...dists: (number | null)[]): number {
   const valid = dists.filter((d): d is number => d !== null);
   return valid.length > 0 ? Math.min(...valid) : 9999;
@@ -35,14 +51,14 @@ export function calculateTotalScore(data: InfrastructureData): ScoreBreakdown {
   else if (subDist <= 1000) subScore = 8;
 
   // Transfer bonus (+2)
-  if (subScore > 0 && data.subway.lines.length > 1) {
-    subScore += 2;
-  }
+  const transferBonus = subScore > 0 && data.subway.lines.length > 1 ? 2 : 0;
+  subScore += transferBonus;
 
   const subwayInfo: SubwayScoreInfo = {
     nearestDist: subDist,
     name: data.subway.stationName ?? '',
     score: subScore,
+    transferBonus,
   };
 
   // 2. Convenience / Laundry (Max 14)
@@ -61,7 +77,7 @@ export function calculateTotalScore(data: InfrastructureData): ScoreBreakdown {
   if (data.laundromat.count > 0) cvsScore += 2;
 
   // Cap at 14 (should naturally cap, 10 + 2 + 2 = 14)
-  cvsScore = Math.min(14, cvsScore);
+  cvsScore = Math.min(SCORE_MAX.convenience, cvsScore);
 
   const convenienceInfo: ConvenienceScoreInfo = {
     score: cvsScore,
@@ -99,7 +115,7 @@ export function calculateTotalScore(data: InfrastructureData): ScoreBreakdown {
     }
   };
 
-  // 4. Lifestyle (Max 48)
+  // 4. Lifestyle (Max 50)
   const deptDist = data.deptStore.nearestDist ?? 9999;
   let deptScore = 0;
   if (deptDist <= 600) deptScore = 15;
@@ -126,8 +142,8 @@ export function calculateTotalScore(data: InfrastructureData): ScoreBreakdown {
 
   const medDist = data.medical.nearestDist ?? 9999;
   let medScore = 0;
-  if (medDist <= 250) medScore = 6;
-  else if (medDist <= 500) medScore = 4;
+  if (medDist <= 250) medScore = SCORE_MAX.medical;
+  else if (medDist <= 500) medScore = 6;
 
   const lifestyleInfo: LifestyleScoreInfo = {
     deptStore: { nearestDist: deptDist, name: data.deptStore.name ?? '', score: deptScore },
@@ -139,17 +155,17 @@ export function calculateTotalScore(data: InfrastructureData): ScoreBreakdown {
 
   // 5. Aggregate
   let totalScore = subScore + cvsScore + martScore + deptScore + cinemaScore + cafeScore + careScore + medScore;
-  totalScore = Math.max(0, Math.min(100, totalScore));
+  totalScore = Math.max(0, Math.min(TOTAL_SCORE_MAX, totalScore));
 
   const percentages = {
-    subway: subScore / 22,
-    convenience: cvsScore / 14,
-    martDaiso: martScore / 14,
-    deptStore: deptScore / 15,
-    cinema: cinemaScore / 10,
-    cafe: cafeScore / 9,
-    care: careScore / 8,
-    medical: medScore / 6,
+    subway: subScore / SCORE_MAX.subway,
+    convenience: cvsScore / SCORE_MAX.convenience,
+    martDaiso: martScore / SCORE_MAX.martDaiso,
+    deptStore: deptScore / SCORE_MAX.deptStore,
+    cinema: cinemaScore / SCORE_MAX.cinema,
+    cafe: cafeScore / SCORE_MAX.cafe,
+    care: careScore / SCORE_MAX.care,
+    medical: medScore / SCORE_MAX.medical,
   };
 
   let weakestCategory = 'allGood';

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { SCORE_MAX, LIFESTYLE_MAX, TOTAL_SCORE_MAX } from '@/lib/scoring';
 import type { ScoreBreakdown, InfrastructureData } from '@/types/score';
 import { ChevronDown, ChevronUp, Train, Store, ShoppingBag, MapPin, Heart, Film } from 'lucide-react';
 
@@ -88,7 +89,7 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
         </h3>
         <span className="text-2xl font-black text-white tabular-nums">
           {breakdown.totalScore}
-          <span className="text-sm font-normal text-slate-500"> / 100</span>
+          <span className="text-sm font-normal text-slate-500"> / {TOTAL_SCORE_MAX}</span>
         </span>
       </div>
 
@@ -108,12 +109,12 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
             </span>
           }
           score={subway.score} 
-          maxScore={22} 
+          maxScore={SCORE_MAX.subway}
           icon={<Train size={18} />}
         >
           <DetailRow label="가장 가까운 역" value={subway.name ? `${subway.name}역` : '없음'} />
           <DetailRow label="직선거리" value={formatDist(subway.nearestDist)} highlight />
-          <DetailRow label="환승/급행 보너스" value={subway.score >= 20 ? '적용됨' : '없음'} />
+          <DetailRow label="환승 보너스" value={subway.transferBonus > 0 ? `+${subway.transferBonus}점 적용` : '없음'} />
         </Accordion>
 
         {/* Convenience */}
@@ -125,7 +126,7 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
             </span>
           }
           score={convenience.score} 
-          maxScore={14} 
+          maxScore={SCORE_MAX.convenience}
           icon={<Store size={18} />}
         >
           <DetailRow label="최단 거리" value={formatDist(convenience.nearestDist)} highlight />
@@ -145,7 +146,7 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
             </span>
           }
           score={martDaiso.score} 
-          maxScore={14} 
+          maxScore={SCORE_MAX.martDaiso}
           icon={<ShoppingBag size={18} />}
         >
           <DetailRow label="최단 거리" value={formatDist(martDaiso.nearestDist)} highlight />
@@ -165,7 +166,7 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
             </span>
           }
           score={lifestyle.deptStore.score + lifestyle.cinema.score + lifestyle.cafe.score + lifestyle.care.score + lifestyle.medical.score} 
-          maxScore={50} 
+          maxScore={LIFESTYLE_MAX}
           icon={<Heart size={18} />}
         >
           <DetailRow label="백화점" value={lifestyle.deptStore.name ? `${lifestyle.deptStore.name} (${formatDist(lifestyle.deptStore.nearestDist)})` : '없음'} />

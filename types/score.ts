@@ -10,6 +10,7 @@
 export type Tier = 'S' | 'A' | 'B' | 'C' | 'F';
 
 export interface SubwayScoreInfo {
+  transferBonus: number;
   nearestDist: number; // 9999 means none found
   name: string;
   score: number;

@@ -5,6 +5,7 @@ import { toPng } from 'html-to-image';
 import confetti from 'canvas-confetti';
 import { Download, Link, RotateCcw } from 'lucide-react';
 import type { TierResult } from '@/types/score';
+import { TOTAL_SCORE_MAX } from '@/lib/scoring';
 
 // ── Tier visual config ──────────────────────────────────────────────────────
 const TIER_CONFIG = {
@@ -138,7 +139,7 @@ export default function ResultCard({ tier, address, isMock, warning, onReset }: 
         <div>
           <div className="text-5xl font-black text-white tabular-nums">
             {tier.score}
-            <span className="text-xl font-medium text-slate-400"> / 100점</span>
+            <span className="text-xl font-medium text-slate-400"> / {TOTAL_SCORE_MAX}점</span>
           </div>
         </div>
 
@@ -156,7 +157,7 @@ export default function ResultCard({ tier, address, isMock, warning, onReset }: 
             📍 {address}
           </p>
           <p className="text-[10px] text-slate-600 mt-0.5">
-            자취 생존기 맵 · 500m 직선거리 기준
+            자취 생존기 맵 · 항목별 직선거리 기준 · 최대 1.5km
           </p>
         </div>
       </div>

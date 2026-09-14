@@ -352,7 +352,10 @@ test('score API stabilization', async (t) => {
       const body = await response.json();
       assert.equal(body._isMock, true);
       assert.match(body._warning, /데모 데이터/);
-      assert.equal(body.breakdown.totalScore, 88);
+      assert.equal(body.breakdown.totalScore, 90);
+      assert.equal(body.tier.score, 90);
+      assert.equal(body.tier.tier, 'S');
+      assert.equal(body.breakdown.lifestyle.medical.score, 6);
       assert.ok(!JSON.stringify(body).includes('steepHill'));
       if (baseline) assert.deepEqual(body, baseline);
       else baseline = body;
