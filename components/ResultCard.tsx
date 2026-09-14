@@ -8,6 +8,7 @@ import type { TierResult } from '@/types/score';
 import { TOTAL_SCORE_MAX } from '@/lib/scoring';
 import type { Coordinates } from '@/lib/coordinates';
 import { buildShareUrl, buildResultShareData, shareResult } from '@/lib/sharing';
+import { getScoreBand, trackEvent } from '@/lib/analytics';
 
 // ── Tier visual config ──────────────────────────────────────────────────────
 const TIER_CONFIG = {
@@ -79,7 +80,7 @@ export default function ResultCard({ tier, address, coordinates, isMock, warning
         ? ['#f59e0b', '#8b5cf6', '#22c55e', '#f43f5e']
         : ['#64748b', '#94a3b8'],
     });
-  }, [tier.tier]);
+  }, [tier.score, tier.tier]);
 
   // Download as PNG
   const handleDownload = useCallback(async () => {
@@ -90,6 +91,8 @@ export default function ResultCard({ tier, address, coordinates, isMock, warning
       a.href = dataUrl;
       a.download = `자취생존기_${tier.tier}티어.png`;
       a.click();
+      const scoreBand = getScoreBand(tier.score);
+      if (scoreBand) trackEvent('png_downloaded', { tier: tier.tier, score_band: scoreBand });
     } catch (err) {
       console.error('이미지 저장 실패:', err);
     }
@@ -100,8 +103,17 @@ export default function ResultCard({ tier, address, coordinates, isMock, warning
     setSharing(true);
     try {
       const url = buildShareUrl(window.location.href, coordinates);
+      const scoreBand = getScoreBand(tier.score);
+      if (scoreBand) trackEvent('share_clicked', { tier: tier.tier, score_band: scoreBand });
       const outcome = await shareResult(buildResultShareData(tier, url, isMock), navigator);
-      if (outcome === 'copied') setShareNotice('공유 문구와 링크를 복사했습니다. 원하는 대화에 붙여넣어 주세요.');
+      if (outcome === 'copied') {
+        if (scoreBand) trackEvent('share_completed', { method: 'clipboard', tier: tier.tier, score_band: scoreBand });
+        setShareNotice('공유 문구와 링크를 복사했습니다. 원하는 대화에 붙여넣어 주세요.');
+      } else if (outcome === 'shared') {
+        if (scoreBand) trackEvent('share_completed', { method: 'native_share', tier: tier.tier, score_band: scoreBand });
+      } else {
+        trackEvent('share_cancelled', { method: 'native_share' });
+      }
     } catch {
       setShareNotice('공유하지 못했습니다. 링크 복사를 이용하거나 다시 시도해 주세요.');
     } finally {
@@ -112,7 +124,10 @@ export default function ResultCard({ tier, address, coordinates, isMock, warning
   const handleCopyLink = async () => {
     setShareNotice('');
     try {
+      const scoreBand = getScoreBand(tier.score);
+      if (scoreBand) trackEvent('share_clicked', { tier: tier.tier, score_band: scoreBand });
       await navigator.clipboard.writeText(buildShareUrl(window.location.href, coordinates));
+      if (scoreBand) trackEvent('share_completed', { method: 'clipboard', tier: tier.tier, score_band: scoreBand });
       setShareNotice('링크를 복사했습니다.');
     } catch {
       setShareNotice('링크를 복사하지 못했습니다. 브라우저의 클립보드 권한을 확인해 주세요.');
@@ -210,7 +225,10 @@ export default function ResultCard({ tier, address, coordinates, isMock, warning
       {/* Reset */}
       <button
         id="reset-btn"
-        onClick={onReset}
+        onClick={() => {
+          trackEvent('reanalyze_clicked', { previous_tier: tier.tier });
+          onReset();
+        }}
         className="
           w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm
           text-slate-400 hover:text-white border border-dashed border-slate-700

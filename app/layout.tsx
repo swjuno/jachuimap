@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import GoogleAnalytics from '@/components/GoogleAnalytics';
 
 export const metadata: Metadata = {
   title: '자취 생존기 맵 | 내 자취방 인프라 생존 점수 측정기',
@@ -42,6 +43,7 @@ export default function RootLayout({
       </head>
       {/* suppressHydrationWarning 추가 */}
       <body className="antialiased" suppressHydrationWarning>
+        <GoogleAnalytics />
         {children}
       </body>
     </html>

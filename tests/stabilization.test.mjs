@@ -24,6 +24,7 @@ const {
   searchKeyword,
 } = await import('../lib/kakao.ts');
 const { normalizeCoordinates, coordinatesEqual, syncMapCenter } = await import('../lib/coordinates.ts');
+const { getScoreBand, isMeasurementIdValid, trackAnalysisCompletedOnce, trackEvent } = await import('../lib/analytics.ts');
 await import('../lib/scoring.test.ts');
 await import('../lib/kakao.test.ts');
 const { parseSharedLocation, restoreSharedLocationOnce, buildShareUrl, buildResultShareData, shareResult } = await import('../lib/sharing.ts');
@@ -100,6 +101,50 @@ test('coordinate sharing and restoration', async (t) => {
     assert.ok(long.text.includes('가'.repeat(159) + '…'));
     assert.ok(!long.text.includes('가'.repeat(200)));
     assert.match(long.text, /데모 데이터/);
+  });
+});
+
+test('privacy-conscious analytics', async (t) => {
+  await t.test('measurement ID and environment gate analytics loading', () => {
+    assert.equal(isMeasurementIdValid(undefined), false);
+    assert.equal(isMeasurementIdValid(''), false);
+    assert.equal(isMeasurementIdValid('G-XXXXXXXXXX'), true);
+    assert.equal(isMeasurementIdValid('not-a-ga-id'), false);
+    const events = [];
+    assert.equal(trackEvent('shared_link_opened', {}, { isProduction: false, sender: (name, params) => events.push({ name, params }) }), false);
+    assert.deepEqual(events, []);
+  });
+  await t.test('only coarse event data is dispatched and score bands use exact boundaries', () => {
+    const expected = [[44, '0_44'], [45, '45_59'], [59, '45_59'], [60, '60_74'], [74, '60_74'], [75, '75_89'], [89, '75_89'], [90, '90_100'], [100, '90_100']];
+    for (const [score, band] of expected) assert.equal(getScoreBand(score), band);
+    const events = [];
+    const sender = (name, params) => events.push({ name, params });
+    assert.equal(trackEvent('analysis_completed', { source: 'manual', tier: 'S', score_band: '90_100', is_mock: false }, { isProduction: true, sender }), true);
+    assert.deepEqual(events, [{ name: 'analysis_completed', params: { source: 'manual', tier: 'S', score_band: '90_100', is_mock: false } }]);
+    assert.ok(!Object.keys(events[0].params).some(key => ['score', 'lat', 'lng', 'address', 'dynamicMessage', 'place_name'].includes(key)));
+    trackEvent('analysis_completed', { source: 'manual', tier: 'S', score_band: '90_100', is_mock: false, score: 100, lat: 37.5 } , { isProduction: true, sender });
+    assert.deepEqual(events.at(-1), { name: 'analysis_completed', params: { source: 'manual', tier: 'S', score_band: '90_100', is_mock: false } });
+  });
+  await t.test('analysis completion is dispatched once per request key', () => {
+    const events = [];
+    const keys = new Set();
+    const params = { source: 'shared_link', tier: 'A', score_band: '75_89', is_mock: true };
+    assert.equal(trackAnalysisCompletedOnce('request-1', keys, params, { isProduction: true, sender: (name, payload) => events.push({ name, payload }) }), true);
+    assert.equal(trackAnalysisCompletedOnce('request-1', keys, params, { isProduction: true, sender: (name, payload) => events.push({ name, payload }) }), false);
+    assert.equal(events.length, 1);
+  });
+  await t.test('error, share, cancel and PNG event contracts reject location data', () => {
+    const events = [];
+    const sender = (name, params) => events.push({ name, params });
+    trackEvent('analysis_failed', { source: 'manual', error_code: 'INFRASTRUCTURE_FETCH_FAILED', retryable: true }, { isProduction: true, sender });
+    trackEvent('share_clicked', { tier: 'B', score_band: '60_74' }, { isProduction: true, sender });
+    trackEvent('share_completed', { method: 'clipboard', tier: 'B', score_band: '60_74' }, { isProduction: true, sender });
+    trackEvent('share_cancelled', { method: 'native_share' }, { isProduction: true, sender });
+    trackEvent('png_downloaded', { tier: 'B', score_band: '60_74' }, { isProduction: true, sender });
+    trackEvent('reanalyze_clicked', { previous_tier: 'B' }, { isProduction: true, sender });
+    trackEvent('shared_link_opened', {}, { isProduction: true, sender });
+    assert.equal(events.length, 7);
+    for (const event of events) assert.ok(!JSON.stringify(event).match(/lat|lng|address|query|dynamicMessage|facility|place_name|score[^_b]/i));
   });
 });
 
