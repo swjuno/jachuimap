@@ -124,6 +124,7 @@ export interface GeoResult {
 export async function geocodeAddress(
   address: string,
   apiKey: string,
+  signal?: AbortSignal,
 ): Promise<GeoResult | null> {
   const url = new URL('https://dapi.kakao.com/v2/local/search/address.json');
   url.searchParams.set('query', address);
@@ -132,6 +133,7 @@ export async function geocodeAddress(
     headers: { Authorization: `KakaoAK ${apiKey}` },
     // Do not cache geocoding results — address data can change
     cache: 'no-store',
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(4_000)]) : AbortSignal.timeout(4_000),
   });
 
   if (!res.ok) {
@@ -152,6 +154,7 @@ export async function geocodeAddress(
     const kwRes = await fetch(kwUrl.toString(), {
       headers: { Authorization: `KakaoAK ${apiKey}` },
       cache: 'no-store',
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(4_000)]) : AbortSignal.timeout(4_000),
     });
 
     if (!kwRes.ok) {
@@ -200,6 +203,7 @@ export async function searchCategory(
   categoryCode: string,
   radius: number,
   apiKey: string,
+  signal?: AbortSignal,
 ): Promise<KakaoDocument[]> {
   const url = new URL('https://dapi.kakao.com/v2/local/search/category.json');
   url.searchParams.set('category_group_code', categoryCode);
@@ -213,6 +217,7 @@ export async function searchCategory(
     url,
     apiKey,
     `Kakao category search (${categoryCode})`,
+    signal,
   );
 }
 
@@ -229,6 +234,7 @@ export async function searchKeyword(
   keyword: string,
   radius: number,
   apiKey: string,
+  signal?: AbortSignal,
 ): Promise<KakaoDocument[]> {
   const url = new URL('https://dapi.kakao.com/v2/local/search/keyword.json');
   url.searchParams.set('query', keyword);
@@ -242,6 +248,7 @@ export async function searchKeyword(
     url,
     apiKey,
     `Kakao keyword search ("${keyword}")`,
+    signal,
   );
 }
 
@@ -249,6 +256,7 @@ async function fetchSearchPages(
   url: URL,
   apiKey: string,
   description: string,
+  signal?: AbortSignal,
 ): Promise<KakaoDocument[]> {
   const documents: KakaoDocument[] = [];
 
@@ -258,6 +266,7 @@ async function fetchSearchPages(
     const res = await fetch(url.toString(), {
       headers: { Authorization: `KakaoAK ${apiKey}` },
       cache: 'no-store',
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(4_000)]) : AbortSignal.timeout(4_000),
     });
 
     if (!res.ok) {
@@ -469,22 +478,23 @@ export async function fetchInfrastructureData(
   lat: number,
   lng: number,
   apiKey: string,
+  signal = AbortSignal.timeout(10_000),
 ): Promise<InfrastructureData> {
   // Every query contributes to scoring and is required. Preserve all outcomes
   // before deciding whether it is safe to aggregate and score the result.
   const queries = await Promise.all([
-    captureQuery('subway', searchCategory(lng, lat, 'SW8', 1000, apiKey)),
-    captureQuery('cvs', searchCategory(lng, lat, 'CS2', 300, apiKey)),
-    captureQuery('daiso', searchKeyword(lng, lat, '다이소', 800, apiKey)),
-    captureQuery('oliveYoung', searchKeyword(lng, lat, '올리브영', 500, apiKey)),
-    captureQuery('laundry', searchKeyword(lng, lat, '코인빨래방', 300, apiKey)),
-    captureQuery('cafe', searchCategory(lng, lat, 'CE7', 400, apiKey)),
-    captureQuery('mart', searchCategory(lng, lat, 'MT1', 800, apiKey)),
-    captureQuery('deptStore', searchKeyword(lng, lat, '백화점', 1500, apiKey)),
-    captureQuery('cinema', searchKeyword(lng, lat, '영화관', 1200, apiKey)),
-    captureQuery('gym', searchKeyword(lng, lat, '헬스장', 500, apiKey)),
-    captureQuery('pharmacy', searchCategory(lng, lat, 'PM9', 500, apiKey)),
-    captureQuery('hospital', searchCategory(lng, lat, 'HP8', 500, apiKey)),
+    captureQuery('subway', searchCategory(lng, lat, 'SW8', 1000, apiKey, signal)),
+    captureQuery('cvs', searchCategory(lng, lat, 'CS2', 300, apiKey, signal)),
+    captureQuery('daiso', searchKeyword(lng, lat, '다이소', 800, apiKey, signal)),
+    captureQuery('oliveYoung', searchKeyword(lng, lat, '올리브영', 500, apiKey, signal)),
+    captureQuery('laundry', searchKeyword(lng, lat, '코인빨래방', 300, apiKey, signal)),
+    captureQuery('cafe', searchCategory(lng, lat, 'CE7', 400, apiKey, signal)),
+    captureQuery('mart', searchCategory(lng, lat, 'MT1', 800, apiKey, signal)),
+    captureQuery('deptStore', searchKeyword(lng, lat, '백화점', 1500, apiKey, signal)),
+    captureQuery('cinema', searchKeyword(lng, lat, '영화관', 1200, apiKey, signal)),
+    captureQuery('gym', searchKeyword(lng, lat, '헬스장', 500, apiKey, signal)),
+    captureQuery('pharmacy', searchCategory(lng, lat, 'PM9', 500, apiKey, signal)),
+    captureQuery('hospital', searchCategory(lng, lat, 'HP8', 500, apiKey, signal)),
   ]);
 
   const [
@@ -579,14 +589,14 @@ export async function fetchInfrastructureData(
     medical: {
       nearestDist: getNearestDist(pharmacyDocs, hospitalDocs),
     },
-    rawDebugData: {
+    ...(process.env.NODE_ENV !== 'production' ? { rawDebugData: {
       daisoRaw: daisoDocs,
       daisoDedup: filteredDaiso,
       martRaw: martDocs,
       martDedup: martDedup,
       cvsRaw: cvsDocs,
       cvsDedup: cvsDedup,
-    }
+    } } : {}),
   };
 }
 

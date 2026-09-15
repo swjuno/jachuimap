@@ -52,7 +52,7 @@ NEXT_PUBLIC_GA_MEASUREMENT_ID=G-XXXXXXXXXX
 잘못된 링크는 안내와 초기 화면을 표시하고, 조회 실패는 같은 위치로 재시도할 수 있습니다.
 공유 링크에는 선택한 지도 위치가 포함됩니다. REST 키가 없으면 데모 표시가 유지됩니다.
 
-공유 결과에는 서버에서 발급한 `/share/{shareToken}` 주소를 사용합니다. 토큰은 30일 동안만 유효하고 `SHARE_SIGNING_SECRET`으로 HMAC 서명됩니다. 서명은 위조를 막지만 토큰을 암호화하지 않으므로 토큰을 가진 사람은 공유 당시 좌표를 확인할 수 있습니다. 비밀키가 없으면 기존 `?lat=...&lng=...&share=1` 공유 방식으로 자동 대체됩니다. OG 미리보기는 토큰에 서명된 점수·티어만 사용하며 카카오 시설 검색을 실행하지 않습니다. 링크를 연 뒤에는 메인 화면이 좌표를 서버에 다시 보내 현재 시설 기준으로 재분석합니다.
+공유 결과에는 서버에서 발급한 `/share/{shareToken}` 주소를 사용합니다. 공유 점수 스냅샷은 30일 동안 유효하고 `SHARE_SIGNING_SECRET`으로 HMAC 서명됩니다. 서명은 위조를 막지만 토큰을 암호화하지 않으므로 토큰을 가진 사람은 공유 당시 좌표를 확인할 수 있습니다. 비밀키가 없으면 기존 `?lat=...&lng=...&share=1` 공유 방식으로 자동 대체됩니다. OG 미리보기는 토큰에 서명된 점수·티어만 사용하며 카카오 시설 검색을 실행하지 않습니다. 링크를 연 뒤에는 메인 화면이 좌표를 서버에 다시 보내 현재 시설 기준으로 재분석합니다. 30일이 지난 경우 예전 점수를 숨기고 만료 안내와 현재 위치 분석을 제공합니다. 서명키를 교체하거나 분실하면 이전 링크를 복원할 수 없습니다.
 
 Vercel Production 환경변수에는 다음 값을 등록합니다.
 
@@ -93,3 +93,11 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+
+## 공개 전 운영 안전장치
+
+Production의 분석 요청 제한, 10분 시설 캐시, 외부 조회 시간 제한, 개인정보 없는 상태 로그를 추가했습니다. 서버리스 인스턴스별 보조 방어이므로 전역 쿼터 보호와 자동 장애 알림은 아직 별도 구성이 필요합니다.
+
+공개 광고·Raw Debug UI를 제거했고, 결과 화면에서 점수 근거 요약과 /scoring 계산 기준을 제공합니다. sitemap.xml에는 일반 안내 페이지만 포함합니다.
+
+한계, 로그 확인 방법, 실기기 검증표, 승인 후 진행할 호스팅·외부 서비스 선택은 [운영 안내](docs/operations.md)를 참고하세요. 새 환경변수나 유료 의존성은 필요하지 않습니다.

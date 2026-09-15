@@ -19,7 +19,7 @@ function valid(value: unknown, now: number): value is ShareSnapshot {
   return v.tier === tier && typeof v.title === 'string' && v.title.length > 0 && Array.from(v.title).length <= 40
     && !/[<>\u0000-\u001f]/.test(v.title) && v.scoringVersion === SCORING_VERSION && typeof v.isMock === 'boolean'
     && typeof v.issuedAt === 'number' && Number.isSafeInteger(v.issuedAt) && v.issuedAt <= now + 60
-    && typeof v.expiresAt === 'number' && Number.isSafeInteger(v.expiresAt) && v.expiresAt > now
+    && typeof v.expiresAt === 'number' && Number.isSafeInteger(v.expiresAt) && v.expiresAt > v.issuedAt
     && v.expiresAt - v.issuedAt === SHARE_TTL;
 }
 function configured(secret: string | undefined): secret is string {
@@ -39,7 +39,7 @@ export function createShareToken(
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return body + '.' + createHmac('sha256', secret).update(body).digest('base64url');
 }
-export function verifyShareToken(token: string | undefined, secret = process.env.SHARE_SIGNING_SECRET,
+export function readSignedShareToken(token: string | undefined, secret = process.env.SHARE_SIGNING_SECRET,
   now = Math.floor(Date.now() / 1000)): ShareSnapshot | null {
   if (!token || !configured(secret) || token.length > 1600 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/.test(token)) return null;
   try {
@@ -51,4 +51,11 @@ export function verifyShareToken(token: string | undefined, secret = process.env
     const value: unknown = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     return valid(value, now) ? value : null;
   } catch { return null; }
+}
+
+// Snapshot freshness is separate from the authenticated location's lifetime.
+export function verifyShareToken(token: string | undefined, secret = process.env.SHARE_SIGNING_SECRET,
+  now = Math.floor(Date.now() / 1000)): ShareSnapshot | null {
+  const snapshot = readSignedShareToken(token, secret, now);
+  return snapshot && snapshot.expiresAt > now ? snapshot : null;
 }

@@ -4,6 +4,7 @@
 
 import { geocodeAddress, fetchInfrastructureData } from '@/lib/kakao';
 import { calculateTotalScore, getTierResult } from '@/lib/scoring';
+import { logScoreRequest, scoreRuntime } from '@/lib/score-runtime';
 import { createShareToken } from '@/lib/share-token';
 import type { InfrastructureData, ScoreBreakdown, TierResult } from '@/types/score';
 
@@ -74,7 +75,7 @@ function buildMockResponse(address: string): ScoreApiResponse {
   };
 }
 
-export async function GET(request: Request): Promise<Response> {
+async function analyze(request: Request, signal: AbortSignal): Promise<Response> {
   const { searchParams } = new URL(request.url);
 
   const latStr = searchParams.get('lat');
@@ -135,9 +136,9 @@ export async function GET(request: Request): Promise<Response> {
   } else {
     let geo: Awaited<ReturnType<typeof geocodeAddress>>;
     try {
-      geo = await geocodeAddress(address, apiKey);
+      geo = await geocodeAddress(address, apiKey, signal);
     } catch (err) {
-      console.error('[Score API Error]', err);
+      // Public error response is logged without upstream diagnostics.
       return lookupError('GEOCODING_FAILED');
     }
 
@@ -160,9 +161,12 @@ export async function GET(request: Request): Promise<Response> {
 
   let infrastructure: InfrastructureData;
   try {
-    infrastructure = await fetchInfrastructureData(geoLat, geoLng, apiKey);
+    const load = () => fetchInfrastructureData(geoLat, geoLng, apiKey, signal);
+    infrastructure = process.env.NODE_ENV === 'production'
+      ? await scoreRuntime.infrastructure(geoLat, geoLng, apiKey, load)
+      : await load();
   } catch (err) {
-    console.error('[Score API Error]', err);
+    // Public error response is logged without upstream diagnostics.
     return lookupError('INFRASTRUCTURE_FETCH_FAILED');
   }
 
@@ -179,4 +183,29 @@ export async function GET(request: Request): Promise<Response> {
   };
 
   return Response.json(payload, { status: 200 });
+}
+
+
+export async function GET(request: Request): Promise<Response> {
+  const started = Date.now();
+  const production = process.env.NODE_ENV === 'production';
+  const admission = production ? scoreRuntime.admit(request.headers, process.env.VERCEL === '1') : null;
+  let response: Response;
+  try {
+    response = admission && !admission.release
+      ? Response.json({ error: '요청이 많습니다. 잠시 후 같은 위치로 다시 시도해 주세요.',
+        code: 'RATE_LIMITED', retryable: true, retryAfter: admission.retryAfter },
+        { status: 429, headers: { 'Retry-After': String(admission.retryAfter) } })
+      : await analyze(request, AbortSignal.timeout(10_000));
+  } catch {
+    response = lookupError('INFRASTRUCTURE_FETCH_FAILED');
+  } finally {
+    admission?.release?.();
+  }
+  response.headers.set('Cache-Control', 'private, no-store');
+  if (production) {
+    const body: { code?: string; _isMock?: boolean } = await response.clone().json();
+    logScoreRequest(response.status, body.code ?? (body._isMock ? 'DEMO' : 'OK'), Date.now() - started);
+  }
+  return response;
 }

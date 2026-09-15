@@ -65,6 +65,7 @@ export default function ResultCard({ tier, address, coordinates, shareToken, isM
   const cfg = TIER_CONFIG[tier.tier];
   const [shareNotice, setShareNotice] = useState('');
   const [sharing, setSharing] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Fire confetti once on mount
   useEffect(() => {
@@ -85,19 +86,28 @@ export default function ResultCard({ tier, address, coordinates, shareToken, isM
 
   // Download as PNG
   const handleDownload = useCallback(async () => {
-    if (!cardRef.current) return;
+    if (!cardRef.current || saving) return;
+    setSaving(true);
+    setShareNotice('');
     try {
-      const dataUrl = await toPng(cardRef.current, { quality: 0.95, pixelRatio: 3 });
+      // Export with system fonts so cross-origin font CSS cannot stall saving.
+      const dataUrl = await toPng(cardRef.current, {
+        quality: 0.95, pixelRatio: 3, skipFonts: true,
+        style: { fontFamily: 'system-ui, sans-serif' },
+      });
       const a = document.createElement('a');
       a.href = dataUrl;
       a.download = `자취생존기_${tier.tier}티어.png`;
       a.click();
+      setShareNotice('PNG 카드를 만들었습니다. 브라우저의 다운로드 목록을 확인해 주세요.');
       const scoreBand = getScoreBand(tier.score);
       if (scoreBand) trackEvent('png_downloaded', { tier: tier.tier, score_band: scoreBand });
-    } catch (err) {
-      console.error('이미지 저장 실패:', err);
+    } catch {
+      setShareNotice('카드를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSaving(false);
     }
-  }, [tier.tier]);
+  }, [saving, tier.score, tier.tier]);
 
   const handleShare = async () => {
     setShareNotice('');
@@ -193,6 +203,7 @@ export default function ResultCard({ tier, address, coordinates, shareToken, isM
         <button
           id="download-png-btn"
           onClick={handleDownload}
+          disabled={saving}
           className="
             flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-medium
             bg-slate-800 border border-slate-700 text-slate-200
@@ -200,7 +211,7 @@ export default function ResultCard({ tier, address, coordinates, shareToken, isM
           "
         >
           <Download size={14} />
-          카드 저장 (PNG)
+          {saving ? '카드 만드는 중...' : '카드 저장 (PNG)'}
         </button>
         <button
           id="share-result-btn"

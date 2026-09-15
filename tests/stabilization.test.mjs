@@ -31,6 +31,7 @@ const { shareMetadata } = await import('../lib/share-metadata.ts');
 const { getScoreBand, isMeasurementIdValid, trackAnalysisCompletedOnce, trackEvent } = await import('../lib/analytics.ts');
 await import('../lib/scoring.test.ts');
 await import('../lib/kakao.test.ts');
+await import('./operations.test.mjs');
 const { parseSharedLocation, restoreSharedLocationOnce, buildShareUrl, buildResultShareData, shareResult } = await import('../lib/sharing.ts');
 
 const mainPageSource = await readFile(new URL('../app/(main)/page.tsx', import.meta.url), 'utf8');

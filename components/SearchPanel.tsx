@@ -7,12 +7,13 @@ interface SearchPanelProps {
   onSearch: (lat: number, lng: number) => void;
   onResetGps?: () => void;
   isLoading: boolean;
+  retrySeconds?: number;
 }
 
-export default function SearchPanel({ pinCoords, onSearch, onResetGps, isLoading }: SearchPanelProps) {
+export default function SearchPanel({ pinCoords, onSearch, onResetGps, isLoading, retrySeconds = 0 }: SearchPanelProps) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!pinCoords || isLoading) return;
+    if (!pinCoords || isLoading || retrySeconds > 0) return;
     onSearch(pinCoords.lat, pinCoords.lng);
   }
 
@@ -27,6 +28,7 @@ export default function SearchPanel({ pinCoords, onSearch, onResetGps, isLoading
           <span className="md:hidden">지도를 움직여 원하는 위치를 맞춘 뒤 분석하세요.</span>
           <span className="hidden md:inline">지도에 핀을 꽂고 인프라 티어를 확인하세요. 항목별 직선거리 기준 · 최대 1.5km</span>
         </p>
+        <p className="text-xs text-slate-500 md:hidden">항목별 직선거리 기준 · 최대 1.5km</p>
       </div>
 
       {/* Coordinate Status */}
@@ -60,7 +62,7 @@ export default function SearchPanel({ pinCoords, onSearch, onResetGps, isLoading
         {/* Submit button */}
         <button
           type="submit"
-          disabled={!pinCoords || isLoading}
+          disabled={!pinCoords || isLoading || retrySeconds > 0}
           aria-label="현재 선택한 위치 분석하기"
           className="
             flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-4 py-3
@@ -71,7 +73,7 @@ export default function SearchPanel({ pinCoords, onSearch, onResetGps, isLoading
           "
         >
           <Search size={16} />
-          {isLoading ? '분석 중...' : '🎯 이 위치 분석하기'}
+          {isLoading ? '분석 중...' : retrySeconds > 0 ? `${retrySeconds}초 후 분석 가능` : '🎯 이 위치 분석하기'}
         </button>
       </form>
     </section>

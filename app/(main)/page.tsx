@@ -5,24 +5,23 @@ import SearchPanel from '@/components/SearchPanel';
 import ScanningRadar from '@/components/ScanningRadar';
 import ResultCard from '@/components/ResultCard';
 import ScoreCard from '@/components/ScoreCard';
-import KakaoMap, { DebugMarker } from '@/components/KakaoMap';
-import AdModal from '@/components/AdModal';
-import DebugModal from '@/components/DebugModal';
+import KakaoMap from '@/components/KakaoMap';
 import type { ScoreApiResponse } from '@/app/api/score/route';
 import { coordinatesEqual, type Coordinates } from '@/lib/coordinates';
 import { restoreSharedLocationOnce } from '@/lib/sharing';
 import { getScoreBand, toPublicErrorCode, trackAnalysisCompletedOnce, trackEvent, type AnalyticsSource } from '@/lib/analytics';
 import { canAutoScroll, getScrollBehavior, markAutoScrolled, type ScrollState } from '@/lib/mobile-scroll';
 
-type AppState = 'idle' | 'scanning' | 'ad' | 'result';
+type AppState = 'idle' | 'scanning' | 'result';
 
 export default function Home() {
   const [appState, setAppState] = useState<AppState>('idle');
   const [result, setResult] = useState<ScoreApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pinCoords, setPinCoords] = useState<{lat: number; lng: number} | null>(null);
-  const [showDebug, setShowDebug] = useState(false);
-  const [showDebugMarkers, setShowDebugMarkers] = useState(false);
+  const requestInFlight = useRef(false);
+  const [retryAt, setRetryAt] = useState(0);
+  const [retrySeconds, setRetrySeconds] = useState(0);
   const [entryReady, setEntryReady] = useState(false);
   const entryConsumed = useRef(false);
   const [lastRequest, setLastRequest] = useState<Coordinates | null>(null);
@@ -39,7 +38,6 @@ export default function Home() {
     errorDone: false,
     userInterrupted: false,
   });
-  const suppressScrollUntilRef = useRef(0);
   const [isMobile, setIsMobile] = useState(false);
 
   const handlePinChange = useCallback((coords: Coordinates) => {
@@ -50,6 +48,8 @@ export default function Home() {
   }, []);
 
   const handleSearch = useCallback(async (lat: number, lng: number, source: AnalyticsSource = 'manual') => {
+    if (requestInFlight.current || Date.now() < retryAt) return;
+    requestInFlight.current = true;
     const requestId = ++requestSequence.current;
     scrollStateRef.current = {
       requestId,
@@ -62,7 +62,6 @@ export default function Home() {
     setLastRequest({ lat, lng });
     setPinCoords({ lat, lng });
     setResult(null);
-    setShowDebug(false);
     setAppState('scanning');
     setError(null);
 
@@ -79,6 +78,10 @@ export default function Home() {
       const data: unknown = await res.json();
 
       if (!res.ok) {
+        if (res.status === 429) {
+          const seconds = Number(res.headers.get('Retry-After'));
+          setRetryAt(Date.now() + (Number.isFinite(seconds) ? Math.min(60, Math.max(1, seconds)) : 60) * 1000);
+        }
         const errData = data && typeof data === 'object' ? data as { error?: unknown; code?: unknown; retryable?: unknown } : {};
         const errorCode = toPublicErrorCode(errData.code);
         const retryable = errData.retryable === true;
@@ -100,7 +103,7 @@ export default function Home() {
         });
       }
       setResult(responseData);
-      setAppState('ad');
+      setAppState('result');
     } catch (err) {
       if (!failedRequests.current.has(requestId)) {
         failedRequests.current.add(requestId);
@@ -108,8 +111,22 @@ export default function Home() {
       }
       setError(err instanceof Error ? err.message : '알 수 없는 오류');
       setAppState('idle');
+    } finally {
+      requestInFlight.current = false;
     }
-  }, []);
+  }, [retryAt]);
+
+  useEffect(() => {
+    if (!retryAt) return;
+    const update = () => {
+      const remaining = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+      setRetrySeconds(remaining);
+      if (remaining === 0) setRetryAt(0);
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [retryAt]);
 
   useEffect(() => {
     const query = window.matchMedia('(max-width: 768px)');
@@ -121,8 +138,9 @@ export default function Home() {
 
   useEffect(() => {
     if (!isMobile || (appState !== 'scanning' && appState !== 'result' && !error)) return;
-    const markUserScroll = () => {
-      if (Date.now() >= suppressScrollUntilRef.current) scrollStateRef.current.userInterrupted = true;
+    const markUserScroll = (event: Event) => {
+      if (event instanceof KeyboardEvent && !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return;
+      scrollStateRef.current.userInterrupted = true;
     };
     window.addEventListener('wheel', markUserScroll, { passive: true });
     window.addEventListener('touchmove', markUserScroll, { passive: true });
@@ -145,7 +163,6 @@ export default function Home() {
     const frame = window.requestAnimationFrame(() => {
       if (!canAutoScroll(scrollStateRef.current, phase, requestId)) return;
       markAutoScrolled(scrollStateRef.current, phase);
-      suppressScrollUntilRef.current = Date.now() + 500;
       target.scrollIntoView({ behavior: getScrollBehavior(window.matchMedia('(prefers-reduced-motion: reduce)').matches), block: 'start' });
       target.focus({ preventScroll: true });
     });
@@ -173,25 +190,6 @@ export default function Home() {
 
   const isLoading = appState === 'scanning';
 
-  const debugMarkers: DebugMarker[] = [];
-  if (showDebugMarkers && result?.infrastructure?.rawDebugData) {
-    const rd = result.infrastructure.rawDebugData;
-    const addMarkers = (raw: any[], dedup: any[], prefix: string) => {
-      raw.forEach((doc, idx) => {
-        debugMarkers.push({
-          id: doc.id || `${prefix}-${idx}`,
-          lat: Number(doc.y),
-          lng: Number(doc.x),
-          label: doc.place_name,
-          isAccepted: dedup.some(d => d.id === doc.id)
-        });
-      });
-    };
-    addMarkers(rd.daisoRaw, rd.daisoDedup, 'daiso');
-    addMarkers(rd.martRaw, rd.martDedup, 'mart');
-    addMarkers(rd.cvsRaw, rd.cvsDedup, 'cvs');
-  }
-
   return (
     <main className="min-h-dvh bg-[var(--color-surface)] px-4 py-8 md:py-12">
       {/* ── Google Fonts ──────────────────────────────────────────────── */}
@@ -210,22 +208,11 @@ export default function Home() {
             compact={appState === 'result'}
             label={result?.address ?? (pinCoords ? '지정된 위치' : undefined)}
             onPinChange={handlePinChange}
-            debugMarkers={debugMarkers}
           />}
 
           <div className="hidden md:block">
             {appState === 'result' && result && (
               <ScoreCard breakdown={result.breakdown} infra={result.infrastructure} />
-            )}
-            {appState === 'result' && (
-              <div className="glass-card p-4 flex items-center gap-3 text-sm mt-4">
-                <span className="text-xl">🏦</span>
-                <div>
-                  <p className="font-semibold text-slate-200">전세 대출 비교</p>
-                  <p className="text-xs text-slate-500">카카오뱅크 · 우리은행 · 국민은행</p>
-                </div>
-                <span className="ml-auto text-xs text-slate-600 border border-slate-700 px-2 py-0.5 rounded">AD</span>
-              </div>
             )}
           </div>
         </div>
@@ -238,10 +225,10 @@ export default function Home() {
             <div ref={errorRef} tabIndex={-1} role="alert" className="scroll-mt-6 rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-3 text-sm text-red-300">
               ⚠️ {error}
               {lastRequest && (
-                <button type="button" disabled={isLoading}
+                <button type="button" disabled={isLoading || retrySeconds > 0}
                   onClick={() => void handleSearch(lastRequest.lat, lastRequest.lng, 'manual')}
                   className="ml-3 underline disabled:opacity-50">
-                  같은 위치로 다시 분석
+                  {retrySeconds > 0 ? `${retrySeconds}초 후 재시도` : '같은 위치로 다시 분석'}
                 </button>
               )}
             </div>
@@ -260,7 +247,8 @@ export default function Home() {
                   );
                 }
               }}
-              isLoading={isLoading} 
+              isLoading={isLoading}
+              retrySeconds={retrySeconds}
             />
           )}
 
@@ -288,15 +276,6 @@ export default function Home() {
                   infra={result.infrastructure}
                 />
               </div>
-              {/* Mobile ad slot */}
-              <div className="md:hidden glass-card p-4 flex items-center gap-3 text-sm">
-                <span className="text-xl">🚚</span>
-                <div>
-                  <p className="font-semibold text-slate-200">이삿짐 견적 비교</p>
-                  <p className="text-xs text-slate-500">짐카 · 사다리차 포함 최저가</p>
-                </div>
-                <span className="ml-auto text-xs text-slate-600 border border-slate-700 px-2 py-0.5 rounded">AD</span>
-              </div>
             </div>
           )}
         </div>
@@ -306,35 +285,11 @@ export default function Home() {
       <footer className="mt-12 text-center text-xs text-slate-700 pb-12">
         자취 생존기 맵 · 카카오 로컬 API 기반 · 최대 반경 1.5km 다중 스캔 적용
         <span className="mx-2">·</span>
+        <a href="/scoring" className="underline hover:text-slate-400">점수 기준과 데이터 한계</a>
+        <span className="mx-2">·</span>
         <a href="/privacy" className="underline hover:text-slate-400">개인정보 처리방침</a>
       </footer>
 
-      {/* ── Ad Modal ──────────────────────────────────────────────────── */}
-      {appState === 'ad' && (
-        <AdModal onClose={() => setAppState('result')} />
-      )}
-
-      {/* ── Debug Tools ────────────────────────────────────────────────── */}
-      {result?.infrastructure?.rawDebugData && (
-        <>
-          <button
-            onClick={() => setShowDebug(true)}
-            className="fixed bottom-4 left-4 z-40 bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 px-3 py-2 rounded-full border border-slate-700 shadow-xl text-xs font-bold transition-all flex items-center gap-2"
-          >
-            <span>🛠️ Raw 데이터 디버그</span>
-          </button>
-          
-          {showDebug && (
-            <DebugModal 
-              onClose={() => setShowDebug(false)} 
-              debugData={result.infrastructure.rawDebugData} 
-              showMarkers={showDebugMarkers}
-              onToggleMarkers={() => setShowDebugMarkers(!showDebugMarkers)}
-            />
-          )}
-        </>
-      )}
     </main>
   );
 }
-

@@ -2,6 +2,8 @@
 
 /* ─── Design Tokens ──────────────────────────────────────────────────── */
 @theme {
+  /* Mobile flow uses max-width: 768px; desktop starts strictly above it. */
+  --breakpoint-md: 48.0625rem;
   --color-brand-50:  #f0fdf4;
   --color-brand-100: #dcfce7;
   --color-brand-400: #4ade80;

@@ -13,6 +13,7 @@ export type PublicErrorCode =
   | 'ADDRESS_NOT_FOUND'
   | 'INVALID_COORDINATES'
   | 'MISSING_PARAMS'
+  | 'RATE_LIMITED'
   | 'UNKNOWN_ERROR';
 
 export interface AnalyticsEventParams {
@@ -61,6 +62,7 @@ const PUBLIC_ERROR_CODES: readonly PublicErrorCode[] = [
   'ADDRESS_NOT_FOUND',
   'INVALID_COORDINATES',
   'MISSING_PARAMS',
+  'RATE_LIMITED',
   'UNKNOWN_ERROR',
 ];
 

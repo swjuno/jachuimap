@@ -100,6 +100,19 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
       )}
 
       <div className="space-y-2">
+        <div className="rounded-xl bg-slate-900/50 p-3 text-sm text-slate-300 space-y-2">
+          <p>지하철: {infra.subway.stationName && infra.subway.distanceMetres !== null
+            ? `${infra.subway.stationName}역 · ${infra.subway.distanceMetres}m`
+            : '1km 검색에서 확인되지 않음'}</p>
+          <p>편의점: 주요 4개 브랜드 {infra.cvs.gs25 + infra.cvs.cu + infra.cvs.seven + infra.cvs.emart24}개 확인
+            {infra.cvs.nearestDist !== null ? ` · 가장 가까운 편의점 ${infra.cvs.nearestDist}m` : ' · 300m 검색에서 확인되지 않음'}</p>
+          <p>영화관: {infra.cinema.name && infra.cinema.nearestDist !== null
+            ? `${infra.cinema.name} · ${infra.cinema.nearestDist}m`
+            : '1.2km 지정 브랜드 검색에서 확인되지 않음'}</p>
+          <p className="text-xs text-slate-400">직선거리이며 실제 도보 거리·시간과 다릅니다. 조회 실패 시 점수를 제공하지 않습니다.
+            검색 범위·브랜드 필터·최대 45개 결과 제한 때문에 확인되지 않은 시설이 있을 수 있습니다.</p>
+          <a href="/scoring" className="inline-block text-brand-400 underline">점수 기준과 데이터 한계 보기</a>
+        </div>
         {/* Subway */}
         <Accordion 
           title={
@@ -177,12 +190,6 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
         </Accordion>
       </div>
 
-      {/* Ad Banner */}
-      <div className="mt-6 border border-slate-700 border-dashed rounded-lg p-4 bg-slate-900/50 flex flex-col items-center justify-center relative overflow-hidden group cursor-pointer hover:bg-slate-800 transition-colors">
-        <span className="absolute top-1 left-2 text-[10px] text-slate-500 font-bold bg-slate-800 px-1.5 py-0.5 rounded">AD</span>
-        <p className="text-brand-400 font-bold text-sm mt-2">청년 전세대출 최저금리 1분만에 비교하기 💰</p>
-        <p className="text-xs text-slate-400 mt-1">버팀목, 카카오뱅크 등 조건 확인 &rarr;</p>
-      </div>
     </section>
   );
 }

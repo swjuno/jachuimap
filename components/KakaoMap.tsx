@@ -68,7 +68,7 @@ interface KakaoMapInstance {
 const KAKAO_SDK_SRC = 'https://dapi.kakao.com/v2/maps/sdk.js';
 
 export default function KakaoMap({ lat, lng, compact = false, label, onPinChange, debugMarkers }: KakaoMapProps) {
-  const mapHeightClass = compact ? 'h-[220px] md:h-[460px]' : 'h-[400px] md:h-[460px]';
+  const mapHeightClass = compact ? 'h-[220px] md:h-[460px]' : 'h-[clamp(180px,calc(100svh-160px),400px)] md:h-[460px]';
   const containerRef = useRef<HTMLDivElement>(null);
   const mapKey = process.env.NEXT_PUBLIC_KAKAO_MAP_KEY;
   const controlledCoordinates = normalizeCoordinates(lat, lng);
@@ -316,7 +316,7 @@ export default function KakaoMap({ lat, lng, compact = false, label, onPinChange
       </div>
 
       {/* Floating Controls */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
+      <div className="absolute top-20 md:top-4 right-4 z-10 flex flex-col gap-2">
         <div className="flex flex-col bg-slate-800/90 border border-slate-700 rounded-lg overflow-hidden shadow-lg backdrop-blur-md">
           <button
             type="button"
