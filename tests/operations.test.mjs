@@ -11,6 +11,8 @@ import { GET } from '../app/api/score/route.ts';
 import { readFile } from 'node:fs/promises';
 
 const resultCardSource = await readFile(new URL('../components/ResultCard.tsx', import.meta.url), 'utf8');
+const mainPageSource = await readFile(new URL('../app/(main)/page.tsx', import.meta.url), 'utf8');
+const kakaoMapSource = await readFile(new URL('../components/KakaoMap.tsx', import.meta.url), 'utf8');
 
 test('instance request limits expire and cannot be bypassed by an untrusted header', () => {
   let now = 0;
@@ -151,4 +153,13 @@ test('PNG export uses local-safe fonts and records success only after download',
   const download = resultCardSource.indexOf('a.click()');
   const completed = resultCardSource.indexOf("trackEvent('png_downloaded'");
   assert.ok(download >= 0 && completed > download);
+});
+
+test('desktop result layout adds evidence beside one map while preserving mobile preview', () => {
+  assert.match(mainPageSource, /min-\[1180px\]:grid/);
+  assert.match(mainPageSource, /min-\[1180px\]:col-start-1/);
+  assert.match(resultCardSource, /hidden min-\[1180px\]:block/);
+  assert.match(resultCardSource, /분석 요약/);
+  assert.match(resultCardSource, /id="copy-link-btn"[^>]*min-h-11/);
+  assert.match(kakaoMapSource, /h-\[220px\] md:h-\[460px\]/);
 });

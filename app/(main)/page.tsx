@@ -199,9 +199,9 @@ export default function Home() {
       />
 
       {/* ── Page wrapper — mobile: single col | desktop: 2 col ──────── */}
-      <div className={`mx-auto flex w-full max-w-md flex-col md:max-w-5xl md:grid md:grid-cols-2 md:gap-8 md:items-start`}>
+      <div className={`mx-auto flex w-full max-w-md flex-col min-[1180px]:max-w-6xl min-[1180px]:grid min-[1180px]:grid-cols-2 min-[1180px]:gap-8 min-[1180px]:items-start`}>
         {/* One map stays mounted; CSS order places it before or after the mobile result. */}
-        <div className={`${appState === 'result' ? 'order-2' : 'order-1'} md:order-none md:col-start-1 md:row-start-1 md:sticky md:top-8 space-y-4`}>
+        <div className={`${appState === 'result' ? 'order-2' : 'order-1'} min-[1180px]:order-none min-[1180px]:col-start-1 min-[1180px]:row-start-1 min-[1180px]:sticky min-[1180px]:top-8 space-y-4`}>
           {entryReady && <KakaoMap
             lat={pinCoords?.lat}
             lng={pinCoords?.lng}
@@ -210,7 +210,7 @@ export default function Home() {
             onPinChange={handlePinChange}
           />}
 
-          <div className="hidden md:block">
+          <div className="hidden min-[1180px]:block">
             {appState === 'result' && result && (
               <ScoreCard breakdown={result.breakdown} infra={result.infrastructure} />
             )}
@@ -218,7 +218,7 @@ export default function Home() {
         </div>
 
         {/* ── RIGHT column: Search / Scanning / Result ───────────────── */}
-        <div className={`${appState === 'result' ? 'order-1' : 'order-2'} md:order-none md:col-start-2 md:row-start-1 space-y-4`}>
+        <div className={`${appState === 'result' ? 'order-1' : 'order-2'} min-[1180px]:order-none min-[1180px]:col-start-2 min-[1180px]:row-start-1 space-y-4`}>
 
           {/* Error banner */}
           {error && (
@@ -265,12 +265,14 @@ export default function Home() {
                 shareToken={result.shareToken}
                 address={result.address}
                 coordinates={lastRequest ?? result.coordinates}
+                breakdown={result.breakdown}
+                infra={result.infrastructure}
                 isMock={result._isMock}
                 warning={result._warning}
                 onReset={handleReset}
               />
               {/* Mobile breakdown below result card */}
-              <div className="md:hidden">
+              <div className="min-[1180px]:hidden">
                 <ScoreCard
                   breakdown={result.breakdown}
                   infra={result.infrastructure}
