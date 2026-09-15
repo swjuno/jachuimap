@@ -10,7 +10,7 @@ interface ScoreCardProps {
   infra: InfrastructureData;
 }
 
-// ── Accordion Component ──────────────────────────────────────────────────
+// ── Accordion Component ──────────────────────────────────────────────
 
 function Accordion({
   title,
@@ -75,11 +75,154 @@ function DetailRow({ label, value, highlight }: { label: string; value: React.Re
   );
 }
 
+// ── Score reason chip ────────────────────────────────────────────────
+
+function ScoreReasonChip({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-2 rounded-lg bg-slate-800/60 border border-slate-700/40 px-3 py-2 text-xs text-slate-300 leading-snug">
+      {children}
+    </div>
+  );
+}
+
+/** Format distance; returns '없음' for 9999 sentinel and 'Xm' otherwise. */
+function fmtDist(d: number): string {
+  return d === 9999 ? '없음' : `${d}m`;
+}
+
+// ── Subway reason text ───────────────────────────────────────────────
+
+function subwayReasonText(
+  distanceMetres: number | null,
+  transferBonus: number,
+  baseScore: number,
+): string {
+  if (distanceMetres === null || baseScore === 0) {
+    return '1km 반경 안에 확인된 지하철역 없음 → 0점';
+  }
+  const threshold =
+    distanceMetres <= 350 ? '350m 이내 → 기본 20점' :
+    distanceMetres <= 700 ? '700m 이내 → 기본 14점' :
+                             '1km 이내 → 기본 8점';
+  const bonusPart = transferBonus > 0 ? ` + 환승 가능 +${transferBonus}점` : '';
+  return `${distanceMetres}m · ${threshold}${bonusPart}`;
+}
+
+// ── CVS reason text ─────────────────────────────────────────────────
+
+function cvsReasonText(
+  nearestDist: number | null,
+  brandCount: number,
+  laundryCount: number,
+  score: number,
+): string {
+  if (score === 0) {
+    return nearestDist === null
+      ? '300m 반경 안에 편의점이 확인되지 않음 → 0점'
+      : `편의점 ${nearestDist}m (300m 초과) → 기본 점수 없음`;
+  }
+  const base = nearestDist !== null && nearestDist <= 150 ? 10 : 6;
+  const threshold = nearestDist !== null && nearestDist <= 150 ? '150m 이내 → 기본 10점' : '300m 이내 → 기본 6점';
+  const brandBonus = brandCount >= 2 ? ` + 브랜드 ${brandCount}종 +2점` : '';
+  const laundryBonus = laundryCount > 0 ? ` + 빨래방 +2점` : '';
+  return `${nearestDist}m · ${threshold}${brandBonus}${laundryBonus}`;
+}
+
+// ── Mart reason text ────────────────────────────────────────────────
+
+function martReasonText(
+  nearestDist: number,
+  hasDaiso: boolean,
+  hasMart: boolean,
+  score: number,
+): string {
+  if (score === 0) {
+    return nearestDist === 9999
+      ? '800m 반경 안에 마트·다이소가 확인되지 않음 → 0점'
+      : `최단 ${nearestDist}m (800m 초과) → 기본 점수 없음`;
+  }
+  const threshold =
+    nearestDist <= 400 ? '400m 이내 → 기본 10점' : '800m 이내 → 기본 6점';
+  const comboBonus = hasDaiso && hasMart ? ' + 다이소·마트 동시 확인 +4점' : '';
+  return `${nearestDist}m · ${threshold}${comboBonus}`;
+}
+
+// ── Lifestyle reason text ───────────────────────────────────────────
+
+function lifestyleReasonLines(
+  lifestyle: ScoreBreakdown['lifestyle'],
+  infra: InfrastructureData,
+): Array<{ label: string; reason: string }> {
+  return [
+    {
+      label: '백화점',
+      reason: (() => {
+        const d = lifestyle.deptStore.nearestDist;
+        if (d === 9999 || infra.deptStore.name === null) return '1.5km 반경 안에 확인된 백화점 없음 → 0점';
+        if (d <= 600) return `${d}m (600m 이내) → 15점`;
+        if (d <= 1000) return `${d}m (1km 이내) → 10점`;
+        if (d <= 1500) return `${d}m (1.5km 이내) → 5점`;
+        return `${d}m (1.5km 초과) → 0점`;
+      })(),
+    },
+    {
+      label: '영화관',
+      reason: (() => {
+        const d = lifestyle.cinema.nearestDist;
+        if (d === 9999 || infra.cinema.name === null) return '1.2km 반경 안에 CGV·롯데·메가박스 없음 → 0점';
+        if (d <= 500) return `${d}m (500m 이내) → 10점`;
+        if (d <= 800) return `${d}m (800m 이내) → 7점`;
+        if (d <= 1200) return `${d}m (1.2km 이내) → 4점`;
+        return `${d}m (1.2km 초과) → 0점`;
+      })(),
+    },
+    {
+      label: '카페/스타벅스',
+      reason: (() => {
+        const d = lifestyle.cafe.nearestDist;
+        const s = lifestyle.cafe.hasStarbucks;
+        if (d === 9999) return '400m 반경 안에 확인된 카페 없음 → 0점';
+        const base = d <= 150 ? 7 : d <= 400 ? 4 : 0;
+        if (base === 0) return `${d}m (400m 초과) → 0점`;
+        const threshold = d <= 150 ? '150m 이내 → 기본 7점' : '400m 이내 → 기본 4점';
+        return `${d}m · ${threshold}${s ? ' + 스타벅스 +2점' : ' · 스타벅스 없음'}`;
+      })(),
+    },
+    {
+      label: '올영/헬스장',
+      reason: (() => {
+        const d = lifestyle.care.nearestDist;
+        const both = lifestyle.care.hasOliveYoung && lifestyle.care.hasGym;
+        if (d === 9999) return '500m 반경 안에 올리브영·헬스장 없음 → 0점';
+        const base = d <= 250 ? 6 : d <= 500 ? 4 : 0;
+        if (base === 0) return `${d}m (500m 초과) → 0점`;
+        const threshold = d <= 250 ? '250m 이내 → 기본 6점' : '500m 이내 → 기본 4점';
+        return `${d}m · ${threshold}${both ? ' + 둘 다 확인 +2점' : ''}`;
+      })(),
+    },
+    {
+      label: '병원/약국',
+      reason: (() => {
+        const d = lifestyle.medical.nearestDist;
+        if (d === 9999) return '500m 반경 안에 병원·약국 없음 → 0점';
+        if (d <= 250) return `${d}m (250m 이내) → 8점 만점`;
+        if (d <= 500) return `${d}m (500m 이내) → 6점`;
+        return `${d}m (500m 초과) → 0점`;
+      })(),
+    },
+  ];
+}
+
+// ── Main Component ───────────────────────────────────────────────────
+
 export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
   const { subway, convenience, martDaiso, lifestyle } = breakdown;
   
   // Helpers
-  const formatDist = (d: number) => d === 9999 ? '없음' : `${d}m`;
+  const brandCount = [infra.cvs.gs25, infra.cvs.cu, infra.cvs.seven, infra.cvs.emart24].filter(c => c > 0).length;
+  const hasDaiso = infra.mart.daisoCount > 0;
+  const hasMart = infra.mart.emartCount > 0 || infra.mart.homeplusCount > 0 || infra.mart.lotteMartCount > 0 || infra.mart.mediumSuperCount > 0;
+  const lifestyleReasons = lifestyleReasonLines(lifestyle, infra);
 
   return (
     <section className="glass-card p-4 space-y-4 animate-fade-in">
@@ -113,6 +256,7 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
             검색 범위·브랜드 필터·최대 45개 결과 제한 때문에 확인되지 않은 시설이 있을 수 있습니다.</p>
           <a href="/scoring" className="inline-block text-brand-400 underline">점수 기준과 데이터 한계 보기</a>
         </div>
+
         {/* Subway */}
         <Accordion 
           title={
@@ -125,8 +269,11 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
           maxScore={SCORE_MAX.subway}
           icon={<Train size={18} />}
         >
+          <ScoreReasonChip>
+            📐 {subwayReasonText(infra.subway.distanceMetres, subway.transferBonus, subway.score)}
+          </ScoreReasonChip>
           <DetailRow label="가장 가까운 역" value={subway.name ? `${subway.name}역` : '없음'} />
-          <DetailRow label="직선거리" value={formatDist(subway.nearestDist)} highlight />
+          <DetailRow label="직선거리" value={fmtDist(subway.nearestDist)} highlight />
           <DetailRow label="환승 보너스" value={subway.transferBonus > 0 ? `+${subway.transferBonus}점 적용` : '없음'} />
         </Accordion>
 
@@ -142,7 +289,10 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
           maxScore={SCORE_MAX.convenience}
           icon={<Store size={18} />}
         >
-          <DetailRow label="최단 거리" value={formatDist(convenience.nearestDist)} highlight />
+          <ScoreReasonChip>
+            📐 {cvsReasonText(infra.cvs.nearestDist, brandCount, infra.laundromat.count, convenience.score)}
+          </ScoreReasonChip>
+          <DetailRow label="최단 거리" value={fmtDist(convenience.nearestDist)} highlight />
           <DetailRow label="GS25" value={`${convenience.counts.gs25}개`} />
           <DetailRow label="CU" value={`${convenience.counts.cu}개`} />
           <DetailRow label="세븐일레븐" value={`${convenience.counts.seven}개`} />
@@ -154,7 +304,7 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
         <Accordion 
           title={
             <span className="flex items-center gap-1.5 flex-wrap">
-              마트 & 다이소 <span className="text-slate-500 text-xs hidden sm:inline">[다이소 {martDaiso.counts.daiso}개, 대형마트 {martDaiso.counts.emart + martDaiso.counts.homeplus + martDaiso.counts.lotteMart}개]</span>
+              마트 &amp; 다이소 <span className="text-slate-500 text-xs hidden sm:inline">[다이소 {martDaiso.counts.daiso}개, 대형마트 {martDaiso.counts.emart + martDaiso.counts.homeplus + martDaiso.counts.lotteMart}개]</span>
               {breakdown.weakestCategory === 'martDaiso' && <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 whitespace-nowrap">⚠️ 최저점</span>}
             </span>
           }
@@ -162,7 +312,10 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
           maxScore={SCORE_MAX.martDaiso}
           icon={<ShoppingBag size={18} />}
         >
-          <DetailRow label="최단 거리" value={formatDist(martDaiso.nearestDist)} highlight />
+          <ScoreReasonChip>
+            📐 {martReasonText(martDaiso.nearestDist, hasDaiso, hasMart, martDaiso.score)}
+          </ScoreReasonChip>
+          <DetailRow label="최단 거리" value={fmtDist(martDaiso.nearestDist)} highlight />
           <DetailRow label="다이소" value={`${martDaiso.counts.daiso}개`} />
           <DetailRow label="이마트" value={`${martDaiso.counts.emart}개`} />
           <DetailRow label="홈플러스" value={`${martDaiso.counts.homeplus}개`} />
@@ -182,11 +335,20 @@ export default function ScoreCard({ breakdown, infra }: ScoreCardProps) {
           maxScore={LIFESTYLE_MAX}
           icon={<Heart size={18} />}
         >
-          <DetailRow label="백화점" value={lifestyle.deptStore.name ? `${lifestyle.deptStore.name} (${formatDist(lifestyle.deptStore.nearestDist)})` : '없음'} />
-          <DetailRow label="영화관" value={lifestyle.cinema.name ? `${lifestyle.cinema.name} (${formatDist(lifestyle.cinema.nearestDist)})` : '없음'} />
-          <DetailRow label="카페/스타벅스" value={lifestyle.cafe.nearestDist !== 9999 ? `최소 ${formatDist(lifestyle.cafe.nearestDist)} ${lifestyle.cafe.hasStarbucks ? '(스벅 포함)' : ''}` : '없음'} />
-          <DetailRow label="올영/헬스장" value={lifestyle.care.nearestDist !== 9999 ? `최소 ${formatDist(lifestyle.care.nearestDist)}` : '없음'} />
-          <DetailRow label="병원/약국" value={formatDist(lifestyle.medical.nearestDist)} />
+          {/* Lifestyle score reasons */}
+          <div className="mb-2 space-y-1">
+            {lifestyleReasons.map(({ label, reason }) => (
+              <div key={label} className="rounded-lg bg-slate-800/60 border border-slate-700/40 px-3 py-1.5 text-xs text-slate-300 flex items-start gap-2">
+                <span className="text-slate-500 shrink-0 w-16">{label}</span>
+                <span className="text-slate-300">{reason}</span>
+              </div>
+            ))}
+          </div>
+          <DetailRow label="백화점" value={lifestyle.deptStore.name ? `${lifestyle.deptStore.name} (${fmtDist(lifestyle.deptStore.nearestDist)})` : '없음'} />
+          <DetailRow label="영화관" value={lifestyle.cinema.name ? `${lifestyle.cinema.name} (${fmtDist(lifestyle.cinema.nearestDist)})` : '없음'} />
+          <DetailRow label="카페/스타벅스" value={lifestyle.cafe.nearestDist !== 9999 ? `최소 ${fmtDist(lifestyle.cafe.nearestDist)} ${lifestyle.cafe.hasStarbucks ? '(스벅 포함)' : ''}` : '없음'} />
+          <DetailRow label="올영/헬스장" value={lifestyle.care.nearestDist !== 9999 ? `최소 ${fmtDist(lifestyle.care.nearestDist)}` : '없음'} />
+          <DetailRow label="병원/약국" value={fmtDist(lifestyle.medical.nearestDist)} />
         </Accordion>
       </div>
 

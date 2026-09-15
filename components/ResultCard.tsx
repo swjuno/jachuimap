@@ -6,7 +6,7 @@ import confetti from 'canvas-confetti';
 import { Download, Link, RotateCcw } from 'lucide-react';
 import type { TierResult } from '@/types/score';
 import type { InfrastructureData, ScoreBreakdown } from '@/types/score';
-import { TOTAL_SCORE_MAX } from '@/lib/scoring';
+import { SCORE_MAX, TOTAL_SCORE_MAX } from '@/lib/scoring';
 import type { Coordinates } from '@/lib/coordinates';
 import { buildShareUrl, buildResultShareData, shareResult } from '@/lib/sharing';
 import { getScoreBand, trackEvent } from '@/lib/analytics';
@@ -62,6 +62,230 @@ interface ResultCardProps {
   onReset: () => void;
 }
 
+// ── Score-reason helpers ────────────────────────────────────────────────────
+
+/**
+ * Format a distance for display. Returns null when the distance is null,
+ * so the caller can decide whether to show "없음" or hide the item entirely.
+ */
+function fmtDist(dist: number | null): string | null {
+  return dist === null ? null : `${dist.toLocaleString('ko-KR')}m`;
+}
+
+/**
+ * Build a short reason string for why the subway earned its score.
+ * Reflects the scoring thresholds in lib/scoring.ts without duplicating the math.
+ */
+function subwayReason(infra: InfrastructureData, score: number): string {
+  const dist = infra.subway.distanceMetres;
+  if (dist === null || score === 0) return '1km 반경 안에 확인된 역 없음 → 0점';
+  const threshold = dist <= 350 ? '350m' : dist <= 700 ? '700m' : '1,000m';
+  const base = dist <= 350 ? 20 : dist <= 700 ? 14 : 8;
+  const bonus = score - base > 0 ? ` + 환승 +${score - base}점` : '';
+  return `${infra.subway.stationName}역 ${dist}m · ${threshold} 이내 기본 ${base}점${bonus}`;
+}
+
+/**
+ * Build a short reason string for why convenience earned its score.
+ */
+function cvsReason(infra: InfrastructureData, score: number): string {
+  const dist = infra.cvs.nearestDist;
+  if (dist === null && infra.laundromat.count === 0) return '300m 반경 안에 편의점·빨래방 없음 → 0점';
+
+  const parts: string[] = [];
+  if (dist !== null) {
+    const base = dist <= 150 ? 10 : dist <= 300 ? 6 : 0;
+    if (base > 0) {
+      parts.push(`편의점 ${dist}m · ${dist <= 150 ? '150m' : '300m'} 이내 기본 ${base}점`);
+    } else {
+      parts.push(`가장 가까운 편의점 ${dist}m (300m 초과)`);
+    }
+  } else {
+    parts.push('300m 안 편의점 없음');
+  }
+
+  const brandCount = [infra.cvs.gs25, infra.cvs.cu, infra.cvs.seven, infra.cvs.emart24].filter(c => c > 0).length;
+  if (brandCount >= 2 && score > (dist !== null && dist <= 150 ? 10 : 6)) {
+    parts.push(`브랜드 ${brandCount}종 이상 +2점`);
+  }
+  if (infra.laundromat.count > 0) parts.push(`빨래방 ${infra.laundromat.count}개 +2점`);
+
+  return parts.join(' · ');
+}
+
+/**
+ * Build a short reason string for mart & daiso scoring.
+ */
+function martReason(infra: InfrastructureData, score: number): string {
+  const daisoDist = infra.mart.daisoDist;
+  const martDist = infra.mart.nearestDist;
+  const nearestDist = Math.min(daisoDist ?? Infinity, martDist ?? Infinity);
+
+  if (nearestDist === Infinity) return '800m 반경 안에 마트·다이소 없음 → 0점';
+
+  const base = nearestDist <= 400 ? 10 : nearestDist <= 800 ? 6 : 0;
+  const hasDaiso = infra.mart.daisoCount > 0;
+  const hasMart = infra.mart.emartCount > 0 || infra.mart.homeplusCount > 0 || infra.mart.lotteMartCount > 0 || infra.mart.mediumSuperCount > 0;
+
+  const parts: string[] = [];
+  if (base > 0) {
+    parts.push(`최단 ${nearestDist}m · ${nearestDist <= 400 ? '400m' : '800m'} 이내 기본 ${base}점`);
+  } else {
+    parts.push(`최단 ${nearestDist}m (800m 초과)`);
+  }
+  if (base > 0 && hasDaiso && hasMart) parts.push(`다이소 + 마트 동시 확인 +4점`);
+  else if (!hasDaiso) parts.push('다이소 없음');
+  else if (!hasMart) parts.push('대형마트 없음');
+
+  return parts.join(' · ');
+}
+
+/**
+ * Produce the 3 most meaningful strength lines for this location,
+ * each annotated with the score reason so the user understands the grade.
+ */
+function buildStrengths(infra: InfrastructureData, breakdown: ScoreBreakdown): string[] {
+  const { subway, convenience, martDaiso, lifestyle } = breakdown;
+  const items: Array<{ score: number; pct: number; text: string }> = [];
+
+  // Subway
+  if (subway.score > 0 && infra.subway.stationName) {
+    items.push({
+      score: subway.score,
+      pct: subway.score / SCORE_MAX.subway,
+      text: `🚇 ${infra.subway.stationName}역 ${fmtDist(infra.subway.distanceMetres)} · ${subway.score}/${SCORE_MAX.subway}점`,
+    });
+  }
+
+  // CVS
+  const totalCvs = infra.cvs.gs25 + infra.cvs.cu + infra.cvs.seven + infra.cvs.emart24;
+  if (convenience.score > 0 && infra.cvs.nearestDist !== null) {
+    items.push({
+      score: convenience.score,
+      pct: convenience.score / SCORE_MAX.convenience,
+      text: `🏪 편의점 ${totalCvs}개(${[infra.cvs.gs25 > 0 && 'GS25', infra.cvs.cu > 0 && 'CU', infra.cvs.seven > 0 && '세븐', infra.cvs.emart24 > 0 && '이마트24'].filter(Boolean).join('·')}) · 최단 ${fmtDist(infra.cvs.nearestDist)} · ${convenience.score}/${SCORE_MAX.convenience}점`,
+    });
+  }
+
+  // Mart & Daiso
+  if (martDaiso.score > 0) {
+    const nearestMart = Math.min(infra.mart.daisoDist ?? Infinity, infra.mart.nearestDist ?? Infinity);
+    const hasDaiso = infra.mart.daisoCount > 0;
+    items.push({
+      score: martDaiso.score,
+      pct: martDaiso.score / SCORE_MAX.martDaiso,
+      text: `🛒 ${hasDaiso ? `다이소 ${infra.mart.daisoCount}개` : '마트'} · 최단 ${nearestMart === Infinity ? '없음' : `${nearestMart}m`} · ${martDaiso.score}/${SCORE_MAX.martDaiso}점`,
+    });
+  }
+
+  // Dept store
+  if (lifestyle.deptStore.score > 0 && lifestyle.deptStore.name) {
+    items.push({
+      score: lifestyle.deptStore.score,
+      pct: lifestyle.deptStore.score / SCORE_MAX.deptStore,
+      text: `🏬 ${lifestyle.deptStore.name} ${lifestyle.deptStore.nearestDist !== 9999 ? fmtDist(lifestyle.deptStore.nearestDist) : ''} · ${lifestyle.deptStore.score}/${SCORE_MAX.deptStore}점`,
+    });
+  }
+
+  // Cinema
+  if (lifestyle.cinema.score > 0 && lifestyle.cinema.name) {
+    items.push({
+      score: lifestyle.cinema.score,
+      pct: lifestyle.cinema.score / SCORE_MAX.cinema,
+      text: `🎬 ${lifestyle.cinema.name} ${lifestyle.cinema.nearestDist !== 9999 ? fmtDist(lifestyle.cinema.nearestDist) : ''} · ${lifestyle.cinema.score}/${SCORE_MAX.cinema}점`,
+    });
+  }
+
+  // Cafe
+  if (lifestyle.cafe.score > 0 && infra.cafe.nearestDist !== null) {
+    const sbLabel = lifestyle.cafe.hasStarbucks ? '(스타벅스 포함)' : '';
+    items.push({
+      score: lifestyle.cafe.score,
+      pct: lifestyle.cafe.score / SCORE_MAX.cafe,
+      text: `☕ 카페 ${fmtDist(infra.cafe.nearestDist)} ${sbLabel} · ${lifestyle.cafe.score}/${SCORE_MAX.cafe}점`.trim(),
+    });
+  }
+
+  // Care
+  if (lifestyle.care.score > 0) {
+    const labels = [infra.care.hasOliveYoung && '올리브영', infra.care.hasGym && '헬스장'].filter(Boolean).join('·');
+    items.push({
+      score: lifestyle.care.score,
+      pct: lifestyle.care.score / SCORE_MAX.care,
+      text: `💪 ${labels} ${fmtDist(infra.care.nearestDist)} · ${lifestyle.care.score}/${SCORE_MAX.care}점`,
+    });
+  }
+
+  // Medical
+  if (lifestyle.medical.score > 0 && infra.medical.nearestDist !== null) {
+    items.push({
+      score: lifestyle.medical.score,
+      pct: lifestyle.medical.score / SCORE_MAX.medical,
+      text: `🏥 병원·약국 ${fmtDist(infra.medical.nearestDist)} · ${lifestyle.medical.score}/${SCORE_MAX.medical}점`,
+    });
+  }
+
+  // Return top 3 by score percentage (highest-scoring categories first)
+  return items
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 3)
+    .map(i => i.text);
+}
+
+/**
+ * Build a concise weakness explanation that clearly distinguishes between
+ * "facility not found in search range" and "found but too far for full score".
+ */
+function buildWeakness(infra: InfrastructureData, breakdown: ScoreBreakdown): string {
+  switch (breakdown.weakestCategory) {
+    case 'subway': {
+      const dist = infra.subway.distanceMetres;
+      if (dist === null) return '1km 반경 안에 확인된 역이 없어 대중교통 점수 0점입니다.';
+      if (dist > 1000) return `가장 가까운 역이 ${fmtDist(dist)} (기준 1km 초과)로 대중교통 점수가 낮습니다.`;
+      return `가장 가까운 ${infra.subway.stationName}역이 ${fmtDist(dist)}라 대중교통 점수가 낮습니다.`;
+    }
+    case 'convenience': {
+      const dist = infra.cvs.nearestDist;
+      const totalCvs = infra.cvs.gs25 + infra.cvs.cu + infra.cvs.seven + infra.cvs.emart24;
+      if (dist === null && totalCvs === 0) return '300m 반경 안에 편의점이 확인되지 않아 생활 편의 점수가 낮습니다.';
+      if (dist !== null && dist > 300) return `가장 가까운 편의점이 ${fmtDist(dist)} (기준 300m 초과)라 점수가 낮습니다.`;
+      return '편의점 거리 또는 브랜드 다양성이 부족해 생활 편의 점수가 낮습니다.';
+    }
+    case 'martDaiso': {
+      const nearestDist = Math.min(infra.mart.daisoDist ?? Infinity, infra.mart.nearestDist ?? Infinity);
+      if (nearestDist === Infinity) return '800m 반경 안에 마트·다이소가 확인되지 않아 장보기 점수가 낮습니다.';
+      return `마트·다이소 최단 ${nearestDist}m (기준 400m 초과)로 장보기 점수가 낮습니다.`;
+    }
+    case 'deptStore': {
+      const dist = infra.deptStore.nearestDist;
+      if (dist === null) return '1.5km 반경 안에 백화점이 확인되지 않아 주말 생활 점수가 낮습니다.';
+      return `가장 가까운 백화점이 ${fmtDist(dist)} (기준 1.5km)라 주말 생활 점수가 낮습니다.`;
+    }
+    case 'cinema': {
+      const dist = infra.cinema.nearestDist;
+      if (dist === null) return '1.2km 반경 안에 CGV·롯데·메가박스가 확인되지 않아 문화생활 점수가 낮습니다.';
+      return `가장 가까운 영화관이 ${fmtDist(dist)} (기준 1.2km)라 문화생활 점수가 낮습니다.`;
+    }
+    case 'cafe': {
+      const dist = infra.cafe.nearestDist;
+      if (dist === null) return '400m 반경 안에 카페가 확인되지 않아 여가 점수가 낮습니다.';
+      return `카페가 ${fmtDist(dist)} (기준 150m·400m)라 여가 점수가 낮습니다. 스타벅스 없음.`;
+    }
+    case 'care': {
+      const dist = infra.care.nearestDist;
+      if (dist === null) return '500m 반경 안에 올리브영·헬스장이 확인되지 않아 생활 관리 점수가 낮습니다.';
+      return `올리브영·헬스장이 ${fmtDist(dist)} (기준 250m·500m)라 생활 관리 점수가 낮습니다.`;
+    }
+    case 'medical': {
+      const dist = infra.medical.nearestDist;
+      if (dist === null) return '500m 반경 안에 병원·약국이 확인되지 않아 의료 접근성 점수가 낮습니다.';
+      return `가장 가까운 병원·약국이 ${fmtDist(dist)} (기준 500m 초과)라 의료 접근성 점수가 낮습니다.`;
+    }
+    default:
+      return '모든 항목이 고르게 충족된 동네입니다.';
+  }
+}
+
 export default function ResultCard({ tier, address, coordinates, shareToken, breakdown, infra, isMock, warning, onReset }: ResultCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const hasFired = useRef(false);
@@ -69,34 +293,9 @@ export default function ResultCard({ tier, address, coordinates, shareToken, bre
   const [shareNotice, setShareNotice] = useState('');
   const [sharing, setSharing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const brandCount = [infra.cvs.gs25, infra.cvs.cu, infra.cvs.seven, infra.cvs.emart24].filter((count) => count > 0).length;
-  const totalCvs = infra.cvs.gs25 + infra.cvs.cu + infra.cvs.seven + infra.cvs.emart24;
-  const formatDistance = (distance: number | null) => distance === null ? null : `${distance.toLocaleString('ko-KR')}m`;
-  const strengths = [
-    infra.subway.stationName && formatDistance(infra.subway.distanceMetres)
-      ? `${infra.subway.stationName}역 ${formatDistance(infra.subway.distanceMetres)}` : null,
-    totalCvs > 0 && formatDistance(infra.cvs.nearestDist)
-      ? `편의점 ${brandCount}개 브랜드 · 가장 가까운 곳 ${formatDistance(infra.cvs.nearestDist)}` : null,
-    formatDistance(infra.mart.nearestDist)
-      ? `마트·다이소 최단 ${formatDistance(infra.mart.nearestDist)}` : null,
-    infra.cinema.name && formatDistance(infra.cinema.nearestDist)
-      ? `영화관 ${infra.cinema.name} · ${formatDistance(infra.cinema.nearestDist)}` : null,
-    infra.cafe.hasStarbucks && formatDistance(infra.cafe.nearestDist)
-      ? `스타벅스 포함 카페 ${formatDistance(infra.cafe.nearestDist)}` : null,
-  ].filter((item): item is string => item !== null).slice(0, 3);
-  const weakness = (() => {
-    switch (breakdown.weakestCategory) {
-      case 'subway': return infra.subway.distanceMetres === null ? '1km 안에 확인된 역이 없어 교통 점수가 낮습니다.' : `가장 가까운 역이 ${formatDistance(infra.subway.distanceMetres)}라 교통 점수가 낮습니다.`;
-      case 'convenience': return totalCvs === 0 ? '300m 안에 확인된 편의점이 없어 생활 점수가 낮습니다.' : '편의점 거리와 브랜드 수가 부족해 생활 점수가 낮습니다.';
-      case 'martDaiso': return '마트와 다이소 접근성이 낮아 장보기 점수가 낮습니다.';
-      case 'deptStore': return '1.5km 안에 가까운 백화점이 없어 주말 생활 점수가 낮습니다.';
-      case 'cinema': return '1.2km 안에 가까운 영화관이 없어 문화생활 점수가 낮습니다.';
-      case 'cafe': return '카페 접근성이 낮아 여가 점수가 낮습니다.';
-      case 'care': return '올리브영·헬스장 접근성이 낮아 생활 관리 점수가 낮습니다.';
-      case 'medical': return infra.medical.nearestDist === null ? '500m 안에 확인된 병원·약국이 없어 의료 점수가 낮습니다.' : `병원·약국이 ${formatDistance(infra.medical.nearestDist)}라 의료 점수가 낮습니다.`;
-      default: return '모든 항목이 고르게 충족된 동네입니다.';
-    }
-  })();
+
+  const strengths = buildStrengths(infra, breakdown);
+  const weakness = buildWeakness(infra, breakdown);
 
   // Fire confetti once on mount
   useEffect(() => {
@@ -214,7 +413,7 @@ export default function ResultCard({ tier, address, coordinates, shareToken, bre
         <div className="space-y-1.5">
           <h2 className="text-lg font-bold text-white">{tier.title}</h2>
           <p className="text-sm text-slate-400 leading-relaxed max-w-xs">
-            "{tier.quote}"
+            &ldquo;{tier.quote}&rdquo;
           </p>
         </div>
 
@@ -288,21 +487,64 @@ export default function ResultCard({ tier, address, coordinates, shareToken, bre
         다른 주소 분석하기
       </button>
 
-      <section className="hidden min-[1180px]:block rounded-2xl border border-slate-700/70 bg-slate-900/60 p-4 space-y-4" aria-label="분석 요약">
-        <div>
-          <h3 className="text-sm font-bold text-slate-200">이 동네의 강점</h3>
-          {strengths.length > 0 ? (
-            <ul className="mt-2 space-y-1.5 text-sm text-slate-300">
-              {strengths.map((item) => <li key={item}>✓ {item}</li>)}
-            </ul>
-          ) : <p className="mt-2 text-sm text-slate-400">높은 점수를 받은 핵심 시설이 확인되지 않았습니다.</p>}
-        </div>
-        <div className="border-t border-slate-700/60 pt-3">
-          <h3 className="text-sm font-bold text-amber-200">가장 아쉬운 항목</h3>
-          <p className="mt-1 text-sm leading-relaxed text-slate-300">{weakness}</p>
-        </div>
+      {/* ── 강점·약점 요약 ─────────────────────────────────────────────────
+           Desktop (min-[1180px]): always visible, no disclosure
+           Mobile (<1180px):       collapsible <details> to keep the view compact
+      ──────────────────────────────────────────────────────────────────────── */}
+
+      {/* Desktop-only — always open */}
+      <section
+        className="hidden min-[1180px]:block rounded-2xl border border-slate-700/70 bg-slate-900/60 p-4 space-y-4"
+        aria-label="분석 요약"
+      >
+        <StrengthWeaknessBody strengths={strengths} weakness={weakness} />
       </section>
+
+      {/* Mobile-only — collapsible details */}
+      <details className="min-[1180px]:hidden rounded-2xl border border-slate-700/70 bg-slate-900/60 group">
+        <summary className="flex items-center justify-between px-4 py-3 cursor-pointer list-none select-none text-sm font-semibold text-slate-300 hover:text-white transition-colors">
+          <span>📊 점수 근거 보기</span>
+          {/* Chevron that rotates when open */}
+          <span className="text-slate-500 transition-transform group-open:rotate-180 text-xs">▼</span>
+        </summary>
+        <div className="px-4 pb-4 space-y-4 border-t border-slate-700/50 pt-3">
+          <StrengthWeaknessBody strengths={strengths} weakness={weakness} />
+        </div>
+      </details>
     </div>
   );
 }
 
+// ── Shared strength/weakness content ──────────────────────────────────────
+
+function StrengthWeaknessBody({
+  strengths,
+  weakness,
+}: {
+  strengths: string[];
+  weakness: string;
+}) {
+  return (
+    <>
+      <div>
+        <h3 className="text-sm font-bold text-slate-200">이 동네의 강점</h3>
+        {strengths.length > 0 ? (
+          <ul className="mt-2 space-y-1.5 text-sm text-slate-300">
+            {strengths.map((item) => (
+              <li key={item} className="flex items-start gap-1.5">
+                <span className="mt-0.5 shrink-0 text-emerald-400">✓</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-slate-400">높은 점수를 받은 핵심 시설이 확인되지 않았습니다.</p>
+        )}
+      </div>
+      <div className="border-t border-slate-700/60 pt-3">
+        <h3 className="text-sm font-bold text-amber-200">가장 아쉬운 항목</h3>
+        <p className="mt-1 text-sm leading-relaxed text-slate-300">{weakness}</p>
+      </div>
+    </>
+  );
+}
