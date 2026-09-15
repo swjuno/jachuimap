@@ -67,6 +67,7 @@ body {
   background-color: var(--color-surface);
   color: #f8fafc;
   min-height: 100dvh;
+  overflow-x: hidden;
 }
 
 /* ─── Radar animation ────────────────────────────────────────────────── */
@@ -100,6 +101,15 @@ body {
 
 .animate-fade-up {
   animation: fade-up 0.5s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .radar-ring,
+  .score-bar-fill,
+  .animate-fade-up {
+    animation: none !important;
+  }
 }
 
 /* ─── Glassmorphism card utility ─────────────────────────────────────── */

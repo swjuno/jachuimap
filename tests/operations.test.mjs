@@ -155,11 +155,14 @@ test('PNG export uses local-safe fonts and records success only after download',
   assert.ok(download >= 0 && completed > download);
 });
 
-test('desktop result layout adds evidence beside one map while preserving mobile preview', () => {
+test('desktop result layout stays two-column while mobile result offers a dedicated facility map', () => {
   assert.match(mainPageSource, /min-\[1180px\]:grid/);
   assert.match(mainPageSource, /min-\[1180px\]:col-start-1/);
   assert.match(resultCardSource, /hidden min-\[1180px\]:block/);
   assert.match(resultCardSource, /분석 요약/);
   assert.match(resultCardSource, /id="copy-link-btn"[^>]*min-h-11/);
   assert.match(kakaoMapSource, /h-\[220px\] md:h-\[460px\]/);
+  assert.match(resultCardSource, /id="show-facilities-btn"/);
+  assert.match(mainPageSource, /visible=\{mapVisible\}/);
+  assert.match(mainPageSource, /viewMode=\{mobileScreen === 'facility-map'/);
 });

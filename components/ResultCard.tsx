@@ -3,7 +3,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { toPng } from 'html-to-image';
 import confetti from 'canvas-confetti';
-import { Download, Link, RotateCcw } from 'lucide-react';
+import { Download, Link, MapPinned, RotateCcw } from 'lucide-react';
 import type { TierResult } from '@/types/score';
 import type { InfrastructureData, ScoreBreakdown } from '@/types/score';
 import { SCORE_MAX, TOTAL_SCORE_MAX } from '@/lib/scoring';
@@ -60,6 +60,7 @@ interface ResultCardProps {
   isMock?: boolean;
   warning?: string;
   onReset: () => void;
+  onShowFacilities?: () => void;
 }
 
 // ── Score-reason helpers ────────────────────────────────────────────────────
@@ -286,7 +287,7 @@ function buildWeakness(infra: InfrastructureData, breakdown: ScoreBreakdown): st
   }
 }
 
-export default function ResultCard({ tier, address, coordinates, shareToken, breakdown, infra, isMock, warning, onReset }: ResultCardProps) {
+export default function ResultCard({ tier, address, coordinates, shareToken, breakdown, infra, isMock, warning, onReset, onShowFacilities }: ResultCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const hasFired = useRef(false);
   const cfg = TIER_CONFIG[tier.tier];
@@ -301,6 +302,7 @@ export default function ResultCard({ tier, address, coordinates, shareToken, bre
   useEffect(() => {
     if (hasFired.current) return;
     hasFired.current = true;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
     const isTierGood = tier.tier === 'S' || tier.tier === 'A';
 
@@ -381,8 +383,8 @@ export default function ResultCard({ tier, address, coordinates, shareToken, bre
       <div
         ref={cardRef}
         className={`
-          glass-card p-6 ring-2 ${cfg.ring} ${cfg.glow}
-          flex flex-col items-center text-center gap-4
+          glass-card p-4 ring-2 ${cfg.ring} ${cfg.glow}
+          flex flex-col items-center text-center gap-3 md:p-6 md:gap-4
         `}
         style={{ background: 'linear-gradient(160deg, #0f172a 0%, #1e293b 100%)' }}
       >
@@ -394,16 +396,17 @@ export default function ResultCard({ tier, address, coordinates, shareToken, bre
         )}
         {/* Tier badge */}
         <div className={`
-          w-24 h-24 rounded-2xl ${cfg.badge} flex flex-col items-center justify-center
+          h-16 w-16 rounded-2xl ${cfg.badge} flex flex-col items-center justify-center
+          md:h-24 md:w-24
           text-white font-black shadow-2xl
         `}>
-          <span className="text-3xl leading-none">{cfg.emoji}</span>
+          <span className="text-2xl leading-none md:text-3xl">{cfg.emoji}</span>
           <span className="text-sm mt-0.5 font-bold">{cfg.label}</span>
         </div>
 
         {/* Score */}
         <div>
-          <div className="text-5xl font-black text-white tabular-nums">
+          <div className="text-4xl font-black text-white tabular-nums md:text-5xl">
             {tier.score}
             <span className="text-xl font-medium text-slate-400"> / {TOTAL_SCORE_MAX}점</span>
           </div>
@@ -411,10 +414,15 @@ export default function ResultCard({ tier, address, coordinates, shareToken, bre
 
         {/* Title & quote */}
         <div className="space-y-1.5">
-          <h2 className="text-lg font-bold text-white">{tier.title}</h2>
+          <h1 id="result-title" className="text-lg font-bold text-white">{tier.title}</h1>
           <p className="text-sm text-slate-400 leading-relaxed max-w-xs">
             &ldquo;{tier.quote}&rdquo;
           </p>
+        </div>
+
+        <div className="w-full rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-left min-[1180px]:hidden">
+          <p className="text-xs font-bold text-amber-200">핵심 요약</p>
+          <p className="mt-1 text-sm leading-relaxed text-slate-200">{weakness}</p>
         </div>
 
         {/* Address */}
@@ -469,6 +477,19 @@ export default function ResultCard({ tier, address, coordinates, shareToken, bre
         <p className="text-xs text-slate-400">서명된 링크도 암호화되지 않아 좌표를 확인할 수 있습니다.</p>
         <p role="status" aria-live="polite" className="text-xs text-slate-300">{shareNotice}</p>
       </div>
+
+      {onShowFacilities && (
+        <button
+          id="show-facilities-btn"
+          type="button"
+          onClick={onShowFacilities}
+          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-brand-500/50 bg-brand-600/20 px-4 text-sm font-semibold text-brand-100 hover:bg-brand-600/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 min-[1180px]:hidden"
+          aria-label="지도에서 점수 근거 시설 보기"
+        >
+          <MapPinned size={16} />
+          지도에서 시설 보기
+        </button>
+      )}
 
       {/* Reset */}
       <button

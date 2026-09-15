@@ -26,6 +26,7 @@ const {
 } = await import('../lib/kakao.ts');
 const { normalizeCoordinates, coordinatesEqual, syncMapCenter } = await import('../lib/coordinates.ts');
 const { canAutoScroll, getScrollBehavior, markAutoScrolled } = await import('../lib/mobile-scroll.ts');
+const { deriveMobileMapScreen, isMobileMapScreen, shouldDisplayMap } = await import('../lib/mobile-map-flow.ts');
 const { createShareToken, verifyShareToken, SHARE_TTL, SCORING_VERSION } = await import('../lib/share-token.ts');
 const { shareMetadata } = await import('../lib/share-metadata.ts');
 const { getScoreBand, isMeasurementIdValid, trackAnalysisCompletedOnce, trackEvent } = await import('../lib/analytics.ts');
@@ -38,14 +39,31 @@ const { parseSharedLocation, restoreSharedLocationOnce, buildShareUrl, buildResu
 const mainPageSource = await readFile(new URL('../app/(main)/page.tsx', import.meta.url), 'utf8');
 const searchPanelSource = await readFile(new URL('../components/SearchPanel.tsx', import.meta.url), 'utf8');
 
-test('mobile selection layout prioritizes analysis CTA while preserving one map mount', () => {
+test('mobile map-first state transitions preserve one map mount and an accessible CTA', () => {
   assert.equal((mainPageSource.match(/<KakaoMap/g) ?? []).length, 1);
   assert.match(mainPageSource, /compact=\{appState === 'result'\}/);
-  assert.match(searchPanelSource, /className="order-1 space-y-4 md:order-3"/);
-  assert.match(searchPanelSource, /className="order-2 space-y-1 md:order-1"/);
   assert.match(searchPanelSource, /className="hidden items-center gap-2[^"]*md:flex"/);
   assert.match(searchPanelSource, /aria-label="현재 선택한 위치 분석하기"/);
   assert.match(searchPanelSource, /지도를 움직여 원하는 위치를 맞춘 뒤 분석하세요\./);
+  assert.match(searchPanelSource, /min-h-12 w-full/);
+  assert.match(searchPanelSource, /safe-area-inset-bottom/);
+  assert.match(searchPanelSource, /언덕 여부/);
+  assert.doesNotMatch(mainPageSource, /scrollIntoView|@\/lib\/mobile-scroll/);
+});
+
+test('mobile map flow derives selection, scanning, result, and facility surfaces', () => {
+  assert.equal(deriveMobileMapScreen('idle', 'result', false), 'select-map');
+  assert.equal(deriveMobileMapScreen('scanning', 'result', false), 'scanning');
+  assert.equal(deriveMobileMapScreen('result', 'result', true), 'result');
+  assert.equal(deriveMobileMapScreen('result', 'facility-map', true), 'facility-map');
+  assert.equal(deriveMobileMapScreen('result', 'facility-map', false), 'select-map');
+  assert.equal(isMobileMapScreen('select-map'), true);
+  assert.equal(isMobileMapScreen('scanning'), true);
+  assert.equal(isMobileMapScreen('facility-map'), true);
+  assert.equal(isMobileMapScreen('result'), false);
+  assert.equal(shouldDisplayMap('result', true), false);
+  assert.equal(shouldDisplayMap('facility-map', true), true);
+  assert.equal(shouldDisplayMap('result', false), true);
 });
 
 test('coordinate sharing and restoration', async (t) => {

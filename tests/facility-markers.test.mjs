@@ -268,6 +268,7 @@ test('facility overlay helpers clean up overlay controls without raw HTML', asyn
       CustomOverlay: class {
         constructor(opts) { Object.assign(this, opts); overlays.push(this); }
         setMap(map) { this.map = map; }
+        setPosition(position) { this.position = position; }
         setZIndex(zIndex) { this.zIndex = zIndex; }
       },
     } } },
@@ -342,7 +343,7 @@ test('Kakao map lifecycle callbacks keep locked analysis coordinates and clean u
       return require(name);
     },
   });
-  const { bindKakaoMapListener, bindKakaoScriptLoad, createKakaoMapEventHandlers } = module.exports;
+  const { bindKakaoMapListener, bindKakaoScriptLoad, createKakaoMapEventHandlers, restoreKakaoMapViewport } = module.exports;
   const listeners = new Map();
   const event = {
     addListener: (_target, type, handler) => listeners.set(type, handler),
@@ -389,6 +390,28 @@ test('Kakao map lifecycle callbacks keep locked analysis coordinates and clean u
   releaseCenter();
   releaseIdle();
   assert.equal(listeners.size, 0);
+
+  const restored = { relayouts: 0, centers: [] };
+  const restoredCircles = [];
+  const restoredPins = [];
+  const restoreMap = {
+    relayout: () => { restored.relayouts++; },
+    setCenter: position => restored.centers.push(position),
+  };
+  restoreKakaoMapViewport(
+    restoreMap,
+    LatLng,
+    analysisCoordinates,
+    [{ setPosition: position => restoredCircles.push(position) }],
+    { setPosition: position => restoredPins.push(position) },
+  );
+  assert.equal(restored.relayouts, 1);
+  assert.deepEqual({ lat: restored.centers[0].lat, lng: restored.centers[0].lng }, analysisCoordinates);
+  assert.equal(restoredCircles[0], restored.centers[0]);
+  assert.equal(restoredPins[0], restored.centers[0]);
+  restoreKakaoMapViewport(restoreMap, LatLng, null, [], null);
+  assert.equal(restored.relayouts, 2);
+  assert.equal(restored.centers.length, 1);
   const scriptListeners = new Set();
   const script = {
     addEventListener: (_type, handler) => scriptListeners.add(handler),
@@ -411,4 +434,8 @@ test('page wires one result map with locked analysis coordinates', async () => {
   assert.ok(source.indexOf('setResult(null)') < source.indexOf("setAppState('scanning')"));
   assert.match(source, /handleSearch\(coords.lat, coords.lng, 'shared_link'\)/);
   assert.match(source, /handleSearch\(lastRequest.lat, lastRequest.lng, 'manual'\)/);
+  assert.match(source, /mobileFullScreen=\{isMobile && mobileShowsMap\}/);
+  assert.match(source, /setMobileResultSurface\('facility-map'\)/);
+  assert.match(source, /setMobileResultSurface\('result'\)/);
+  assert.match(source, /← 결과로 돌아가기/);
 });

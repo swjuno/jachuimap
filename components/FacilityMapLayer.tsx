@@ -22,10 +22,15 @@ const CATEGORY: Record<FacilityCategory, { label: string; icon: string; color: s
 interface Props {
   map: KakaoMapInstance;
   markers: readonly FacilityMarker[];
+  visible?: boolean;
 }
 
 interface OverlayControl {
-  overlay: { setMap: (map: KakaoMapInstance | null) => void; setZIndex: (zIndex: number) => void };
+  overlay: {
+    setMap: (map: KakaoMapInstance | null) => void;
+    setPosition: (position: unknown) => void;
+    setZIndex: (zIndex: number) => void;
+  };
   button: HTMLButtonElement;
   marker: FacilityMarker;
 }
@@ -37,7 +42,7 @@ export function panToFacilityMarkerIfHidden(map: KakaoMapInstance, marker: Facil
   if (!map.getBounds().contain(position)) map.panTo(position);
 }
 
-export default function FacilityMapLayer({ map, markers }: Props) {
+export default function FacilityMapLayer({ map, markers, visible = true }: Props) {
   const [showAll, setShowAll] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const overlaysRef = useRef(new Map<string, OverlayControl>());
@@ -105,13 +110,21 @@ export default function FacilityMapLayer({ map, markers }: Props) {
   }, [selectedId, visibleMarkers]);
 
   useEffect(() => {
+    const sdk = window.kakao?.maps;
+    if (!visible || !sdk?.LatLng) return;
+    overlaysRef.current.forEach(({ overlay, marker }) => {
+      overlay.setPosition(new sdk.LatLng(marker.lat, marker.lng));
+    });
+  }, [visible]);
+
+  useEffect(() => {
     if (selected) panToFacilityMarkerIfHidden(map, selected);
   }, [map, selected]);
 
   const modeLabel = showAll ? '점수 근거만 보기' : '전체 시설 보기';
 
   return (
-    <aside className="absolute bottom-2 left-2 right-16 z-20 text-xs text-slate-200"
+    <aside className="absolute bottom-[calc(2.25rem+env(safe-area-inset-bottom))] left-2 right-16 z-20 text-xs text-slate-200 md:bottom-2"
       aria-label="분석 시설 목록">
       {selected && (
         <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border border-slate-600 bg-slate-950/95 px-2 py-1.5 shadow-lg"

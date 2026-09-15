@@ -21,7 +21,7 @@ export default function ScanningRadar() {
   }, [stepIndex]);
 
   return (
-    <div className="glass-card p-8 flex flex-col items-center gap-6 animate-fade-up">
+    <div role="status" aria-live="polite" className="glass-card flex max-w-sm flex-col items-center gap-6 p-6 animate-fade-up md:p-8">
       {/* Radar rings */}
       <div className="relative flex items-center justify-center w-40 h-40">
         {/* Static center dot */}

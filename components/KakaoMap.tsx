@@ -25,6 +25,11 @@ interface KakaoMapProps {
   facilityMarkers?: readonly FacilityMarker[];
   /** Keep the analyzed location independent from result-map viewport movement. */
   lockAnalysisCoordinates?: boolean;
+  /** Hide the map surface without destroying its SDK instance. */
+  visible?: boolean;
+  /** Fill the mobile viewport's map row while retaining the desktop map size. */
+  mobileFullScreen?: boolean;
+  viewMode?: 'select' | 'facility';
 }
 
 // Kakao Maps SDK type stubs
@@ -85,6 +90,7 @@ type KakaoEventApi = {
   removeListener: (target: unknown, type: string, handler: () => void) => void;
 };
 type PositionCircle = { setPosition: (position: unknown) => void };
+type PositionOverlay = { setPosition: (position: unknown) => void };
 
 export function bindKakaoScriptLoad(
   script: Pick<HTMLScriptElement, 'addEventListener' | 'removeEventListener'>,
@@ -125,6 +131,21 @@ export function createKakaoMapEventHandlers(
   return { centerChanged, idle };
 }
 
+export function restoreKakaoMapViewport(
+  map: KakaoMapInstance,
+  LatLng: KakaoLatLngFactory,
+  coordinates: Coordinates | null,
+  circles: readonly PositionCircle[],
+  analysisPin: PositionOverlay | null,
+): void {
+  map.relayout();
+  if (!coordinates) return;
+  const position = new LatLng(coordinates.lat, coordinates.lng);
+  map.setCenter(position);
+  circles.forEach((circle) => circle.setPosition(position));
+  analysisPin?.setPosition(position);
+}
+
 interface AnalysisPinControl {
   overlay: { setMap: (map: KakaoMapInstance | null) => void; setPosition: (position: unknown) => void };
   element: HTMLElement;
@@ -132,8 +153,23 @@ interface AnalysisPinControl {
 
 const KAKAO_SDK_SRC = 'https://dapi.kakao.com/v2/maps/sdk.js';
 
-export default function KakaoMap({ lat, lng, compact = false, label, onPinChange, facilityMarkers, lockAnalysisCoordinates = false }: KakaoMapProps) {
-  const mapHeightClass = compact ? 'h-[220px] md:h-[460px]' : 'h-[clamp(180px,calc(100svh-160px),400px)] md:h-[460px]';
+export default function KakaoMap({
+  lat,
+  lng,
+  compact = false,
+  label,
+  onPinChange,
+  facilityMarkers,
+  lockAnalysisCoordinates = false,
+  visible = true,
+  mobileFullScreen = false,
+  viewMode = 'select',
+}: KakaoMapProps) {
+  const mapHeightClass = mobileFullScreen
+    ? 'h-full md:h-[460px]'
+    : compact ? 'h-[220px] md:h-[460px]' : 'h-[clamp(180px,calc(100svh-160px),400px)] md:h-[460px]';
+  const roundedClass = mobileFullScreen ? 'rounded-none md:rounded-2xl' : 'rounded-2xl';
+  const visibilityClass = visible ? '' : 'hidden pointer-events-none';
   const containerRef = useRef<HTMLDivElement>(null);
   const mapKey = process.env.NEXT_PUBLIC_KAKAO_MAP_KEY;
   const controlledCoordinates = normalizeCoordinates(lat, lng);
@@ -357,7 +393,25 @@ export default function KakaoMap({ lat, lng, compact = false, label, onPinChange
     if (!map) return;
     const frame = window.requestAnimationFrame(() => map.relayout());
     return () => window.cancelAnimationFrame(frame);
-  }, [compact, readyMap]);
+  }, [compact, mobileFullScreen, readyMap]);
+
+  useEffect(() => {
+    const map = readyMap;
+    const sdk = window.kakao?.maps;
+    if (!visible || !map || !sdk) return;
+    const frame = window.requestAnimationFrame(() => {
+      restoreKakaoMapViewport(
+        map,
+        sdk.LatLng,
+        analysisCoordinatesRef.current ?? latestCoordinatesRef.current,
+        [primaryCircleRef.current, extendedCircleRef.current].filter(
+          (circle): circle is PositionCircle => circle !== null,
+        ),
+        analysisPinRef.current?.overlay ?? null,
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [visible, readyMap]);
 
   function handleGpsClick() {
     if (!navigator.geolocation || !window.kakao?.maps) return;
@@ -375,7 +429,7 @@ export default function KakaoMap({ lat, lng, compact = false, label, onPinChange
   
   if (!mapKey) {
     return (
-      <div className={`w-full ${mapHeightClass} rounded-2xl overflow-hidden glass-card relative`}>
+      <div aria-hidden={!visible} className={`relative w-full overflow-hidden glass-card ${mapHeightClass} ${roundedClass} ${visibilityClass}`}>
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
           <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(rgba(99,102,241,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.4) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
           <div className="absolute bottom-3 left-0 right-0 flex justify-center">
@@ -387,17 +441,17 @@ export default function KakaoMap({ lat, lng, compact = false, label, onPinChange
   }
 
   return (
-    <div className={`w-full ${mapHeightClass} rounded-2xl overflow-hidden glass-card relative touch-pan-x touch-pan-y shadow-lg`}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+    <div aria-hidden={!visible} className={`relative w-full overflow-hidden glass-card touch-pan-x touch-pan-y shadow-lg ${mapHeightClass} ${roundedClass} ${visibilityClass}`}>
+      <div ref={containerRef} role="region" aria-label={viewMode === 'facility' ? '분석 시설 지도' : '분석 위치 선택 지도'} style={{ width: '100%', height: '100%' }} />
       {!readyMap && <div role="status" className="absolute inset-0 z-30 flex items-center justify-center bg-slate-900 p-4 text-center text-sm text-slate-300">
         {sdkUnavailable ? '지도를 불러오지 못했습니다. 분석 결과는 아래에서 확인할 수 있습니다.' : '지도를 불러오는 중입니다.'}
       </div>}
       {compact && readyMap && facilityMarkers && facilityMarkers.length > 0 && (
-        <FacilityMapLayer map={readyMap} markers={facilityMarkers} />
+        <FacilityMapLayer map={readyMap} markers={facilityMarkers} visible={visible} />
       )}
 
       {/* Floating Search Bar */}
-      <div className="absolute top-4 left-4 right-4 md:left-6 md:right-auto md:w-80 z-20">
+      {viewMode === 'select' && <div className="absolute left-4 right-4 top-[calc(1rem+env(safe-area-inset-top))] z-20 md:left-6 md:right-auto md:top-4 md:w-80">
         <form 
           onSubmit={handleJumpSearch}
           className="bg-slate-900/90 backdrop-blur-md border border-slate-700/60 text-white rounded-xl px-4 py-2.5 shadow-xl flex items-center gap-2"
@@ -411,16 +465,17 @@ export default function KakaoMap({ lat, lng, compact = false, label, onPinChange
             className="bg-transparent border-none outline-none w-full text-sm placeholder:text-slate-300 focus:ring-0"
           />
           {keyword && (
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => setKeyword('')}
-              className="text-slate-400 hover:text-white transition-colors flex-shrink-0"
+              aria-label="검색어 지우기"
+              className="-mr-2 flex min-h-11 min-w-11 flex-shrink-0 items-center justify-center text-slate-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
             >
               <X size={16} />
             </button>
           )}
         </form>
-      </div>
+      </div>}
 
       {/* Location-selection pin follows the viewport only while analysis is unlocked. */}
       {!lockAnalysisCoordinates && (
@@ -437,30 +492,33 @@ export default function KakaoMap({ lat, lng, compact = false, label, onPinChange
       )}
 
       {/* Floating Controls */}
-      <div className="absolute top-20 md:top-4 right-4 z-10 flex flex-col gap-2">
+      <div className={`absolute right-4 z-10 flex flex-col gap-2 md:top-4 ${viewMode === 'facility' ? 'top-[calc(.75rem+env(safe-area-inset-top))]' : 'top-[calc(5rem+env(safe-area-inset-top))]'}`}>
         <div className="flex flex-col bg-slate-800/90 border border-slate-700 rounded-lg overflow-hidden shadow-lg backdrop-blur-md">
           <button
             type="button"
+            aria-label="지도 확대"
             onClick={() => mapInstanceRef.current?.setLevel(mapInstanceRef.current.getLevel() - 1, { animate: true })}
-            className="p-2.5 text-slate-300 hover:text-white hover:bg-slate-700 active:bg-slate-600 transition-colors border-b border-slate-700 flex items-center justify-center"
+            className="flex min-h-11 min-w-11 items-center justify-center border-b border-slate-700 p-2.5 text-slate-300 transition-colors hover:bg-slate-700 hover:text-white active:bg-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
           >
             <Plus size={18} />
           </button>
           <button
             type="button"
+            aria-label="지도 축소"
             onClick={() => mapInstanceRef.current?.setLevel(mapInstanceRef.current.getLevel() + 1, { animate: true })}
-            className="p-2.5 text-slate-300 hover:text-white hover:bg-slate-700 active:bg-slate-600 transition-colors flex items-center justify-center"
+            className="flex min-h-11 min-w-11 items-center justify-center p-2.5 text-slate-300 transition-colors hover:bg-slate-700 hover:text-white active:bg-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
           >
             <Minus size={18} />
           </button>
         </div>
-        <button
+        {viewMode === 'select' && <button
           type="button"
           onClick={handleGpsClick}
-          className="p-2.5 bg-slate-800/90 border border-slate-700 rounded-lg shadow-lg text-slate-300 hover:text-white hover:bg-slate-700 active:bg-slate-600 transition-colors backdrop-blur-md flex items-center justify-center"
+          aria-label="내 GPS 위치로 지도 이동"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-700 bg-slate-800/90 p-2.5 text-slate-300 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-700 hover:text-white active:bg-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
         >
           <Navigation size={18} />
-        </button>
+        </button>}
       </div>
     </div>
   );
