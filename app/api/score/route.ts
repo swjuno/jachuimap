@@ -32,6 +32,7 @@ function lookupError(code: 'GEOCODING_FAILED' | 'INFRASTRUCTURE_FETCH_FAILED'): 
 
 function buildMockResponse(address: string): ScoreApiResponse {
   const mockInfra: InfrastructureData = {
+    facilityMarkers: [],
     subway: {
       exists: true,
       distanceMetres: 280,

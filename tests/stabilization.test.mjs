@@ -32,6 +32,7 @@ const { getScoreBand, isMeasurementIdValid, trackAnalysisCompletedOnce, trackEve
 await import('../lib/scoring.test.ts');
 await import('../lib/kakao.test.ts');
 await import('./operations.test.mjs');
+await import('./facility-markers.test.mjs');
 const { parseSharedLocation, restoreSharedLocationOnce, buildShareUrl, buildResultShareData, shareResult } = await import('../lib/sharing.ts');
 
 const mainPageSource = await readFile(new URL('../app/(main)/page.tsx', import.meta.url), 'utf8');

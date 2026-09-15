@@ -189,6 +189,7 @@ export default function Home() {
   }
 
   const isLoading = appState === 'scanning';
+  const mapCoordinates = appState === 'result' && result ? result.coordinates : pinCoords;
 
   return (
     <main className="min-h-dvh bg-[var(--color-surface)] px-4 py-8 md:py-12">
@@ -203,12 +204,20 @@ export default function Home() {
         {/* One map stays mounted; CSS order places it before or after the mobile result. */}
         <div className={`${appState === 'result' ? 'order-2' : 'order-1'} min-[1180px]:order-none min-[1180px]:col-start-1 min-[1180px]:row-start-1 min-[1180px]:sticky min-[1180px]:top-8 space-y-4`}>
           {entryReady && <KakaoMap
-            lat={pinCoords?.lat}
-            lng={pinCoords?.lng}
+            lat={mapCoordinates?.lat}
+            lng={mapCoordinates?.lng}
             compact={appState === 'result'}
+            facilityMarkers={appState === 'result' && !result?._isMock ? result?.infrastructure.facilityMarkers : undefined}
+            lockAnalysisCoordinates={appState === 'result' && Boolean(result)}
             label={result?.address ?? (pinCoords ? '지정된 위치' : undefined)}
             onPinChange={handlePinChange}
           />}
+          {appState === 'result' && result && (
+            <p className="text-xs text-slate-400">
+              {result._isMock ? '데모 데이터에는 실제 시설 마커를 표시하지 않습니다.' :
+                '초록 핀은 선택 위치, 원형 아이콘은 시설입니다. 기본은 점수 근거 시설만 표시하며, 전체 시설 보기에서도 최대 30곳입니다. 직선거리이며 개별 시설의 추가 점수를 뜻하지 않습니다.'}
+            </p>
+          )}
 
           <div className="hidden min-[1180px]:block">
             {appState === 'result' && result && (

@@ -21,6 +21,23 @@ export const LIFESTYLE_MAX = SCORE_MAX.deptStore + SCORE_MAX.cinema
 export const TOTAL_SCORE_MAX = SCORE_MAX.subway + SCORE_MAX.convenience
   + SCORE_MAX.martDaiso + LIFESTYLE_MAX;
 
+/** Marker provenance derived from the existing score calculation. */
+export interface FacilityScoreEvidence {
+  subway: boolean;
+  cvsBase: boolean;
+  cvsBrandBonus: boolean;
+  laundryBonus: boolean;
+  martBase: boolean;
+  martComboBonus: boolean;
+  deptStore: boolean;
+  cinema: boolean;
+  cafeBase: boolean;
+  starbucksBonus: boolean;
+  careBase: boolean;
+  careComboBonus: boolean;
+  medical: boolean;
+}
+
 function getMinDist(...dists: (number | null)[]): number {
   const valid = dists.filter((d): d is number => d !== null);
   return valid.length > 0 ? Math.min(...valid) : 9999;
@@ -193,6 +210,72 @@ export function calculateTotalScore(data: InfrastructureData): ScoreBreakdown {
     lifestyle: lifestyleInfo,
     dynamicMessage,
     weakestCategory,
+  };
+}
+
+/**
+ * Reuse the existing calculator with one input removed at a time. This does
+ * not change points or tiers; it only states which inputs changed the score.
+ */
+export function getFacilityScoreEvidence(data: InfrastructureData): FacilityScoreEvidence {
+  const score = calculateTotalScore(data);
+  const withoutCvsBrands = calculateTotalScore({
+    ...data,
+    cvs: { ...data.cvs, gs25: 0, cu: 0, seven: 0, emart24: 0 },
+  });
+  const withoutLaundry = calculateTotalScore({
+    ...data,
+    laundromat: { ...data.laundromat, count: 0 },
+  });
+  const withoutDaisoPresence = calculateTotalScore({
+    ...data,
+    mart: { ...data.mart, daisoCount: 0 },
+  });
+  const withoutStarbucks = calculateTotalScore({
+    ...data,
+    cafe: { ...data.cafe, hasStarbucks: false },
+  });
+  const withoutCarePresence = calculateTotalScore({
+    ...data,
+    care: { ...data.care, hasOliveYoung: false, hasGym: false },
+  });
+  const withoutCvsDistance = calculateTotalScore({
+    ...data,
+    cvs: { ...data.cvs, nearestDist: null },
+  });
+  const withoutMartDistance = calculateTotalScore({
+    ...data,
+    mart: { ...data.mart, daisoDist: null, nearestDist: null },
+  });
+  const withoutCafeDistance = calculateTotalScore({
+    ...data,
+    cafe: { ...data.cafe, nearestDist: null },
+  });
+  const withoutCareDistance = calculateTotalScore({
+    ...data,
+    care: { ...data.care, nearestDist: null },
+  });
+
+  const cvsBrandBonus = score.convenience.score > withoutCvsBrands.convenience.score;
+  const laundryBonus = score.convenience.score > withoutLaundry.convenience.score;
+  const martComboBonus = score.martDaiso.score > withoutDaisoPresence.martDaiso.score;
+  const starbucksBonus = score.lifestyle.cafe.score > withoutStarbucks.lifestyle.cafe.score;
+  const careComboBonus = score.lifestyle.care.score > withoutCarePresence.lifestyle.care.score;
+
+  return {
+    subway: score.subway.score > 0,
+    cvsBase: score.convenience.score > withoutCvsDistance.convenience.score,
+    cvsBrandBonus,
+    laundryBonus,
+    martBase: score.martDaiso.score > withoutMartDistance.martDaiso.score,
+    martComboBonus,
+    deptStore: score.lifestyle.deptStore.score > 0,
+    cinema: score.lifestyle.cinema.score > 0,
+    cafeBase: score.lifestyle.cafe.score > withoutCafeDistance.lifestyle.cafe.score,
+    starbucksBonus,
+    careBase: score.lifestyle.care.score > withoutCareDistance.lifestyle.care.score,
+    careComboBonus,
+    medical: score.lifestyle.medical.score > 0,
   };
 }
 

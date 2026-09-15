@@ -92,6 +92,7 @@ export interface RawDebugData {
 }
 
 export interface InfrastructureData {
+  facilityMarkers?: FacilityMarker[];
   rawDebugData?: RawDebugData;
   subway: SubwayInfo;
   cvs: {
@@ -142,4 +143,18 @@ export interface TierResult {
   quote: string;
   score: number;
   breakdown: ScoreBreakdown;
+}
+
+export type FacilityCategory = 'subway' | 'cvs' | 'laundry' | 'mart' | 'daiso'
+  | 'deptStore' | 'cinema' | 'cafe' | 'oliveYoung' | 'gym' | 'medical';
+
+export interface FacilityMarker {
+  id: string;
+  name: string;
+  category: FacilityCategory;
+  lat: number;
+  lng: number;
+  distance: number;
+  /** Decisive representative for a base score or an actually-applied bonus. */
+  usedForScore: boolean;
 }

@@ -8,7 +8,10 @@
 import 'server-only';
 
 import { getStationMeta } from '@/data/subway-lines';
-import type { InfrastructureData, SubwayInfo } from '@/types/score';
+import { parseFacilityDistance } from '@/lib/facility-distance';
+import { buildFacilityMarkers } from '@/lib/facility-markers';
+import { getFacilityScoreEvidence } from '@/lib/scoring';
+import type { InfrastructureData, SubwayInfo, PlaceDoc } from '@/types/score';
 
 // ---------------------------------------------------------------------------
 // Kakao API response shapes (minimal — only fields we consume)
@@ -293,8 +296,11 @@ async function fetchSearchPages(
 }
 
 function parseDistance(doc: KakaoDocument): number | null {
-  const distance = Number.parseInt(doc.distance, 10);
-  return Number.isFinite(distance) ? distance : null;
+  return parseFacilityDistance(doc.distance);
+}
+
+function filterDocumentsWithValidDistance(documents: KakaoDocument[]): KakaoDocument[] {
+  return documents.filter((document) => parseDistance(document) !== null);
 }
 
 function sortByDistance(docs: KakaoDocument[]): KakaoDocument[] {
@@ -329,13 +335,7 @@ function buildSubwayInfo(docs: KakaoDocument[]): SubwayInfo {
     return { exists: false, distanceMetres: null, stationName: null, lines: [], hasExpress: false };
   }
 
-  const nearest = docs.reduce((current, candidate) => {
-    const currentDistance = parseDistance(current);
-    const candidateDistance = parseDistance(candidate);
-    if (currentDistance === null) return candidateDistance !== null ? candidate : current;
-    if (candidateDistance !== null && candidateDistance < currentDistance) return candidate;
-    return current;
-  });
+  const nearest = nearestDocument(docs) ?? docs[0];
   const stationName = parseStationName(nearest.place_name);
   const distanceMetres = parseDistance(nearest);
   const meta = getStationMeta(stationName);
@@ -362,6 +362,48 @@ function getNearestDist(...docArrays: KakaoDocument[][]): number | null {
     }
   }
   return min === Infinity ? null : min;
+}
+
+function documentKey(doc: PlaceDoc): string {
+  const id = doc.id.trim();
+  return id || `${doc.place_name.trim()}:${doc.y}:${doc.x}`;
+}
+
+function compareDocuments(a: PlaceDoc, b: PlaceDoc): number {
+  const aDistance = parseFacilityDistance(a.distance);
+  const bDistance = parseFacilityDistance(b.distance);
+  if (aDistance === null || bDistance === null) return aDistance === bDistance ? 0 : aDistance === null ? 1 : -1;
+  if (aDistance !== bDistance) return aDistance - bDistance;
+  return documentKey(a).localeCompare(documentKey(b))
+    || a.place_name.localeCompare(b.place_name)
+    || a.y.localeCompare(b.y)
+    || a.x.localeCompare(b.x);
+}
+
+function nearestDocument<T extends PlaceDoc>(...docArrays: readonly T[][]): T | null {
+  const candidates = docArrays.flat().filter((doc) => parseFacilityDistance(doc.distance) !== null);
+  if (candidates.length === 0) return null;
+  return [...candidates].sort(compareDocuments)[0];
+}
+
+type ConvenienceBrand = 'gs25' | 'cu' | 'seven' | 'emart24';
+
+function convenienceBrand(doc: PlaceDoc): ConvenienceBrand | null {
+  const name = doc.place_name.toUpperCase();
+  if (name.includes('GS25') || name.includes('지에스25')) return 'gs25';
+  if (name.includes('CU') || name.includes('씨유')) return 'cu';
+  if (name.includes('세븐일레븐')) return 'seven';
+  if (name.includes('이마트24')) return 'emart24';
+  return null;
+}
+
+function nearestDistinctConvenienceBrands(documents: readonly PlaceDoc[]): PlaceDoc[] {
+  const selected = new Map<ConvenienceBrand, PlaceDoc>();
+  for (const doc of [...documents].sort(compareDocuments)) {
+    const brand = convenienceBrand(doc);
+    if (brand && !selected.has(brand)) selected.set(brand, doc);
+  }
+  return [...selected.values()].slice(0, 2);
 }
 
 function countBrands(docs: KakaoDocument[], keywords: string[]): number {
@@ -498,22 +540,35 @@ export async function fetchInfrastructureData(
   ]);
 
   const [
-    subwayDocs,
-    cvsDocs,
-    daisoDocs,
-    oliveYoungDocs,
-    laundryDocs,
-    cafeDocs,
-    martDocs,
-    deptStoreDocs,
-    cinemaDocs,
-    gymDocs,
-    pharmacyDocs,
-    hospitalDocs,
+    rawSubwayDocs,
+    rawCvsDocs,
+    rawDaisoDocs,
+    rawOliveYoungDocs,
+    rawLaundryDocs,
+    rawCafeDocs,
+    rawMartDocs,
+    rawDeptStoreDocs,
+    rawCinemaDocs,
+    rawGymDocs,
+    rawPharmacyDocs,
+    rawHospitalDocs,
   ] = queries.map((query) => {
     if (query.status === 'failure') throw new InfrastructureLookupError(queries);
     return query.documents;
   });
+
+  const subwayDocs = filterDocumentsWithValidDistance(rawSubwayDocs);
+  const cvsDocs = filterDocumentsWithValidDistance(rawCvsDocs);
+  const daisoDocs = filterDocumentsWithValidDistance(rawDaisoDocs);
+  const oliveYoungDocs = filterDocumentsWithValidDistance(rawOliveYoungDocs);
+  const laundryDocs = filterDocumentsWithValidDistance(rawLaundryDocs);
+  const cafeDocs = filterDocumentsWithValidDistance(rawCafeDocs);
+  const martDocs = filterDocumentsWithValidDistance(rawMartDocs);
+  const deptStoreDocs = filterDocumentsWithValidDistance(rawDeptStoreDocs);
+  const cinemaDocs = filterDocumentsWithValidDistance(rawCinemaDocs);
+  const gymDocs = filterDocumentsWithValidDistance(rawGymDocs);
+  const pharmacyDocs = filterDocumentsWithValidDistance(rawPharmacyDocs);
+  const hospitalDocs = filterDocumentsWithValidDistance(rawHospitalDocs);
 
   const subway = buildSubwayInfo(subwayDocs);
 
@@ -544,10 +599,93 @@ export async function fetchInfrastructureData(
 
   // Lifestyle
   const hasStarbucks = countBrands(cafeDocs, ['스타벅스']) > 0;
-  const deptName = filteredDept.length > 0 ? filteredDept[0].place_name : null;
-  const cinemaName = filteredCinema.length > 0 ? filteredCinema[0].place_name : null;
+  const deptName = nearestDocument(filteredDept)?.place_name ?? null;
+  const cinemaName = nearestDocument(filteredCinema)?.place_name ?? null;
+
+  const infrastructure: InfrastructureData = {
+    subway,
+    cvs: { gs25, cu, seven, emart24, nearestDist: cvsDist },
+    laundromat: { count: laundryDocs.length, nearestDist: getNearestDist(laundryDocs) },
+    mart: {
+      daisoCount: filteredDaiso.length,
+      daisoDist: getNearestDist(filteredDaiso),
+      emartCount,
+      homeplusCount,
+      lotteMartCount,
+      mediumSuperCount,
+      nearestDist: getNearestDist(martDocs),
+    },
+    deptStore: { name: deptName, nearestDist: getNearestDist(filteredDept) },
+    cinema: { name: cinemaName, nearestDist: getNearestDist(filteredCinema) },
+    cafe: { hasStarbucks, nearestDist: getNearestDist(cafeDocs) },
+    care: {
+      hasOliveYoung: filteredOlive.length > 0,
+      hasGym: gymDocs.length > 0,
+      nearestDist: getNearestDist(filteredOlive, gymDocs),
+    },
+    medical: { nearestDist: getNearestDist(pharmacyDocs, hospitalDocs) },
+  };
+  const scoreEvidence = getFacilityScoreEvidence(infrastructure);
+  const evidence = new Set<string>();
+  const mark = (category: string, doc: PlaceDoc | null) => {
+    if (doc) evidence.add(`${category}:${documentKey(doc)}`);
+  };
+
+  if (scoreEvidence.subway) mark('subway', nearestDocument(subwayDocs));
+  if (scoreEvidence.cvsBase) mark('cvs', nearestDocument(cvsDedup));
+  if (scoreEvidence.cvsBrandBonus) {
+    for (const doc of nearestDistinctConvenienceBrands(cvsDedup)) mark('cvs', doc);
+  }
+  if (scoreEvidence.laundryBonus) mark('laundry', nearestDocument(laundryDocs));
+
+  const nearestMartOrDaiso = nearestDocument(martDocs, filteredDaiso);
+  if (scoreEvidence.martBase) {
+    if (nearestMartOrDaiso && filteredDaiso.some((doc) => documentKey(doc) === documentKey(nearestMartOrDaiso))) {
+      mark('daiso', nearestMartOrDaiso);
+    } else {
+      mark('mart', nearestMartOrDaiso);
+    }
+  }
+  if (scoreEvidence.martComboBonus) {
+    mark('daiso', nearestDocument(filteredDaiso));
+    mark('mart', nearestDocument(martDedup));
+  }
+
+  if (scoreEvidence.deptStore) mark('deptStore', nearestDocument(filteredDept));
+  if (scoreEvidence.cinema) mark('cinema', nearestDocument(filteredCinema));
+  if (scoreEvidence.cafeBase) mark('cafe', nearestDocument(cafeDocs));
+  if (scoreEvidence.starbucksBonus) {
+    mark('cafe', nearestDocument(cafeDocs.filter((doc) => doc.place_name.includes('스타벅스'))));
+  }
+  const nearestCare = nearestDocument(filteredOlive, gymDocs);
+  if (scoreEvidence.careBase) {
+    if (nearestCare && filteredOlive.some((doc) => documentKey(doc) === documentKey(nearestCare))) {
+      mark('oliveYoung', nearestCare);
+    } else {
+      mark('gym', nearestCare);
+    }
+  }
+  if (scoreEvidence.careComboBonus) {
+    mark('oliveYoung', nearestDocument(filteredOlive));
+    mark('gym', nearestDocument(gymDocs));
+  }
+  if (scoreEvidence.medical) mark('medical', nearestDocument(pharmacyDocs, hospitalDocs));
+  const facilityMarkers = buildFacilityMarkers([
+    { category: 'subway', documents: subwayDocs, used: doc => evidence.has(`subway:${documentKey(doc)}`) },
+    { category: 'cvs', documents: cvsDedup, used: doc => evidence.has(`cvs:${documentKey(doc)}`) },
+    { category: 'laundry', documents: laundryDocs, used: doc => evidence.has(`laundry:${documentKey(doc)}`) },
+    { category: 'daiso', documents: filteredDaiso, used: doc => evidence.has(`daiso:${documentKey(doc)}`) },
+    { category: 'mart', documents: martDocs, used: doc => evidence.has(`mart:${documentKey(doc)}`) },
+    { category: 'deptStore', documents: filteredDept, used: doc => evidence.has(`deptStore:${documentKey(doc)}`) },
+    { category: 'cinema', documents: filteredCinema, used: doc => evidence.has(`cinema:${documentKey(doc)}`) },
+    { category: 'cafe', documents: cafeDocs, used: doc => evidence.has(`cafe:${documentKey(doc)}`) },
+    { category: 'oliveYoung', documents: filteredOlive, used: doc => evidence.has(`oliveYoung:${documentKey(doc)}`) },
+    { category: 'gym', documents: gymDocs, used: doc => evidence.has(`gym:${documentKey(doc)}`) },
+    { category: 'medical', documents: [...pharmacyDocs, ...hospitalDocs], used: doc => evidence.has(`medical:${documentKey(doc)}`) },
+  ]);
 
   return {
+    facilityMarkers,
     subway,
     cvs: {
       gs25,
@@ -590,12 +728,12 @@ export async function fetchInfrastructureData(
       nearestDist: getNearestDist(pharmacyDocs, hospitalDocs),
     },
     ...(process.env.NODE_ENV !== 'production' ? { rawDebugData: {
-      daisoRaw: daisoDocs,
+      daisoRaw: rawDaisoDocs,
       daisoDedup: filteredDaiso,
-      martRaw: martDocs,
-      martDedup: martDedup,
-      cvsRaw: cvsDocs,
-      cvsDedup: cvsDedup,
+      martRaw: rawMartDocs,
+      martDedup,
+      cvsRaw: rawCvsDocs,
+      cvsDedup,
     } } : {}),
   };
 }

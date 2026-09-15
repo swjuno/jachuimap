@@ -1,5 +1,31 @@
 @import "tailwindcss";
 
+.facility-map-marker {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid white;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px #0008;
+}
+.facility-map-marker:focus-visible {
+  outline: 3px solid #facc15;
+  outline-offset: 2px;
+}
+.facility-map-marker--selected {
+  border-color: #facc15;
+  box-shadow: 0 0 0 3px #1e293b, 0 0 0 5px #facc15, 0 4px 10px #000c;
+  transform: scale(1.16);
+}
+.analysis-map-pin {
+  font-size: 42px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 3px #000a);
+  pointer-events: none;
+}
+
 /* ─── Design Tokens ──────────────────────────────────────────────────── */
 @theme {
   /* Mobile flow uses max-width: 768px; desktop starts strictly above it. */
